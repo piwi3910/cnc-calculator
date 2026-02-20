@@ -389,3 +389,193 @@ func TestOptimize_NoGrainPartOnGrainStock(t *testing.T) {
 	require.Len(t, result.Sheets, 1)
 	assert.True(t, result.Sheets[0].Placements[0].Rotated, "should be rotated to fit")
 }
+
+// ─── Multi-Material Optimization Tests ─────────────────────────────
+
+func TestGroupByMaterial_NoMaterials(t *testing.T) {
+	// When no materials are specified, everything goes into one group
+	parts := []model.Part{
+		model.NewPart("A", 500, 300, 1),
+		model.NewPart("B", 400, 200, 1),
+	}
+	stocks := []model.StockSheet{
+		model.NewStockSheet("Sheet1", 1000, 600, 1),
+	}
+
+	groups := groupByMaterial(parts, stocks)
+
+	require.Len(t, groups, 1, "should be single group when no materials")
+	assert.Len(t, groups[0].parts, 2)
+	assert.Len(t, groups[0].stocks, 1)
+}
+
+func TestGroupByMaterial_SingleMaterial(t *testing.T) {
+	partA := model.NewPart("A", 500, 300, 1)
+	partA.Material = "Plywood"
+	partB := model.NewPart("B", 400, 200, 1)
+	partB.Material = "Plywood"
+
+	stockPly := model.NewStockSheet("Ply", 1000, 600, 1)
+	stockPly.Material = "Plywood"
+
+	groups := groupByMaterial([]model.Part{partA, partB}, []model.StockSheet{stockPly})
+
+	require.Len(t, groups, 1, "single material should produce one group")
+	assert.Len(t, groups[0].parts, 2)
+	assert.Len(t, groups[0].stocks, 1)
+	assert.Equal(t, "Plywood", groups[0].material)
+}
+
+func TestGroupByMaterial_MultipleMaterials(t *testing.T) {
+	partPly := model.NewPart("PlyPart", 500, 300, 1)
+	partPly.Material = "Plywood"
+	partMDF := model.NewPart("MDFPart", 400, 200, 1)
+	partMDF.Material = "MDF"
+
+	stockPly := model.NewStockSheet("PlySheet", 1000, 600, 1)
+	stockPly.Material = "Plywood"
+	stockMDF := model.NewStockSheet("MDFSheet", 1000, 600, 1)
+	stockMDF.Material = "MDF"
+
+	groups := groupByMaterial(
+		[]model.Part{partPly, partMDF},
+		[]model.StockSheet{stockPly, stockMDF},
+	)
+
+	require.Len(t, groups, 2, "two materials should produce two groups")
+
+	// Groups are sorted alphabetically by material
+	assert.Equal(t, "MDF", groups[0].material)
+	assert.Len(t, groups[0].parts, 1)
+	assert.Equal(t, "MDFPart", groups[0].parts[0].Label)
+
+	assert.Equal(t, "Plywood", groups[1].material)
+	assert.Len(t, groups[1].parts, 1)
+	assert.Equal(t, "PlyPart", groups[1].parts[0].Label)
+}
+
+func TestGroupByMaterial_UniversalParts(t *testing.T) {
+	// Parts with no material should be placed on any stock
+	partUniversal := model.NewPart("Universal", 500, 300, 1)
+	partPly := model.NewPart("PlyPart", 400, 200, 1)
+	partPly.Material = "Plywood"
+
+	stockPly := model.NewStockSheet("PlySheet", 1000, 600, 2)
+	stockPly.Material = "Plywood"
+
+	groups := groupByMaterial(
+		[]model.Part{partUniversal, partPly},
+		[]model.StockSheet{stockPly},
+	)
+
+	// Should have 2 groups: Plywood + universal parts
+	require.Len(t, groups, 2)
+
+	// The Plywood group should have the Plywood part
+	assert.Equal(t, "Plywood", groups[0].material)
+	assert.Len(t, groups[0].parts, 1)
+	assert.Equal(t, "PlyPart", groups[0].parts[0].Label)
+
+	// The universal group should have the universal part with all stocks
+	assert.Len(t, groups[1].parts, 1)
+	assert.Equal(t, "Universal", groups[1].parts[0].Label)
+}
+
+func TestGroupByMaterial_UniversalStocks(t *testing.T) {
+	// Stocks with no material should be available to all groups
+	partPly := model.NewPart("PlyPart", 500, 300, 1)
+	partPly.Material = "Plywood"
+	partMDF := model.NewPart("MDFPart", 400, 200, 1)
+	partMDF.Material = "MDF"
+
+	stockUniversal := model.NewStockSheet("AnySheet", 1000, 600, 5)
+	// No material set on stock
+
+	groups := groupByMaterial(
+		[]model.Part{partPly, partMDF},
+		[]model.StockSheet{stockUniversal},
+	)
+
+	require.Len(t, groups, 2)
+
+	// Both groups should have the universal stock available
+	for _, g := range groups {
+		assert.GreaterOrEqual(t, len(g.stocks), 1,
+			"each material group should have the universal stock available")
+	}
+}
+
+func TestOptimize_MultiMaterial_SeparatePlacement(t *testing.T) {
+	opt := New(defaultTestSettings())
+
+	// Plywood parts
+	partPly := model.NewPart("PlyPart", 500, 300, 1)
+	partPly.Material = "Plywood"
+
+	// MDF parts
+	partMDF := model.NewPart("MDFPart", 400, 200, 1)
+	partMDF.Material = "MDF"
+
+	// Material-specific stocks
+	stockPly := model.NewStockSheet("PlySheet", 1000, 600, 1)
+	stockPly.Material = "Plywood"
+	stockMDF := model.NewStockSheet("MDFSheet", 1000, 600, 1)
+	stockMDF.Material = "MDF"
+
+	result := opt.Optimize(
+		[]model.Part{partPly, partMDF},
+		[]model.StockSheet{stockPly, stockMDF},
+	)
+
+	require.Len(t, result.UnplacedParts, 0, "all parts should be placed")
+	require.Len(t, result.Sheets, 2, "each material should use its own sheet")
+
+	// Verify parts are on the correct material sheets
+	for _, sheet := range result.Sheets {
+		for _, p := range sheet.Placements {
+			if p.Part.Material != "" {
+				assert.Equal(t, p.Part.Material, sheet.Stock.Material,
+					"part material should match stock material")
+			}
+		}
+	}
+}
+
+func TestOptimize_MultiMaterial_WrongMaterialNotUsed(t *testing.T) {
+	opt := New(defaultTestSettings())
+
+	// Plywood part that should NOT go on MDF stock
+	partPly := model.NewPart("PlyPart", 500, 300, 1)
+	partPly.Material = "Plywood"
+
+	// Only MDF stock available
+	stockMDF := model.NewStockSheet("MDFSheet", 1000, 600, 1)
+	stockMDF.Material = "MDF"
+
+	result := opt.Optimize(
+		[]model.Part{partPly},
+		[]model.StockSheet{stockMDF},
+	)
+
+	assert.Len(t, result.UnplacedParts, 1, "plywood part should not be placed on MDF stock")
+	assert.Len(t, result.Sheets, 0)
+}
+
+func TestOptimize_MultiMaterial_BackwardCompatible(t *testing.T) {
+	// When no materials are set, behavior should be identical to before
+	opt := New(defaultTestSettings())
+
+	parts := []model.Part{
+		model.NewPart("A", 500, 300, 1),
+		model.NewPart("B", 400, 200, 1),
+	}
+	stocks := []model.StockSheet{
+		model.NewStockSheet("Sheet", 1000, 600, 1),
+	}
+
+	result := opt.Optimize(parts, stocks)
+
+	require.Len(t, result.UnplacedParts, 0, "all parts should be placed")
+	require.Len(t, result.Sheets, 1)
+	assert.Len(t, result.Sheets[0].Placements, 2)
+}
