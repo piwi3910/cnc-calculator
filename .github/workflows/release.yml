@@ -144,6 +144,96 @@ jobs:
         with:
           path: artifacts
 
+      - name: Generate changelog
+        id: changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          # Find previous tag
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "${TAG_NAME}" | head -1)
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "First release — no previous tag found"
+            RANGE="HEAD"
+          else
+            echo "Generating changelog from ${PREV_TAG} to ${TAG_NAME}"
+            RANGE="${PREV_TAG}..HEAD"
+          fi
+
+          # Collect merged PRs since last tag
+          FEATURES=""
+          FIXES=""
+          OTHER=""
+
+          # Get all merge commits (squash merges show as regular commits with PR refs)
+          # Extract PR numbers from commit messages
+          PR_NUMBERS=$(git log ${RANGE} --oneline --grep='(#' | grep -oP '\(#\K[0-9]+' | sort -un)
+
+          for PR in $PR_NUMBERS; do
+            # Get PR title and labels
+            PR_INFO=$(gh pr view "$PR" --json title,labels,body 2>/dev/null) || continue
+            TITLE=$(echo "$PR_INFO" | jq -r '.title')
+            LABELS=$(echo "$PR_INFO" | jq -r '[.labels[].name] | join(",")')
+
+            # Categorize by commit type prefix or label
+            if echo "$TITLE" | grep -qiE '^\[fix\]|^fix[:(]|bug'; then
+              FIXES="${FIXES}\n- ${TITLE} (#${PR})"
+            elif echo "$TITLE" | grep -qiE '^\[feature\]|^\[feat\]|^feat[:(]|enhancement|wishlist' || echo "$LABELS" | grep -qiE 'enhancement|wishlist|feature'; then
+              FEATURES="${FEATURES}\n- ${TITLE} (#${PR})"
+            else
+              OTHER="${OTHER}\n- ${TITLE} (#${PR})"
+            fi
+          done
+
+          # Also check for closed issues that may not have PRs
+          if [ -n "$PREV_TAG" ]; then
+            PREV_DATE=$(git log -1 --format=%aI "$PREV_TAG")
+            CLOSED_ISSUES=$(gh issue list --state closed --search "closed:>${PREV_DATE}" --json number,title,labels --limit 100 2>/dev/null)
+
+            if [ -n "$CLOSED_ISSUES" ] && [ "$CLOSED_ISSUES" != "[]" ]; then
+              echo "$CLOSED_ISSUES" | jq -r '.[] | "\(.number)\t\(.title)\t\([.labels[].name] | join(","))"' | while IFS=$'\t' read -r NUM TITLE LABELS; do
+                # Skip if already captured via PR
+                if echo "$PR_NUMBERS" | grep -q "^${NUM}$" 2>/dev/null; then
+                  continue
+                fi
+              done
+            fi
+          fi
+
+          # Build the changelog
+          CHANGELOG="## What's New in ${TAG_NAME}\n"
+
+          if [ -n "$FEATURES" ]; then
+            CHANGELOG="${CHANGELOG}\n### New Features\n${FEATURES}\n"
+          fi
+
+          if [ -n "$FIXES" ]; then
+            CHANGELOG="${CHANGELOG}\n### Bug Fixes\n${FIXES}\n"
+          fi
+
+          if [ -n "$OTHER" ]; then
+            CHANGELOG="${CHANGELOG}\n### Other Changes\n${OTHER}\n"
+          fi
+
+          # Add download instructions
+          CHANGELOG="${CHANGELOG}\n---\n"
+          CHANGELOG="${CHANGELOG}\n### Downloads\n"
+          CHANGELOG="${CHANGELOG}\n| Platform | File | Notes |"
+          CHANGELOG="${CHANGELOG}\n|----------|------|-------|"
+          CHANGELOG="${CHANGELOG}\n| macOS (Apple Silicon) | \`slabcut-darwin-arm64.app.zip\` | Recommended for M1/M2/M3/M4 Macs — unzip and drag to Applications |"
+          CHANGELOG="${CHANGELOG}\n| macOS (Intel) | \`slabcut-darwin-amd64.app.zip\` | For older Intel-based Macs — unzip and drag to Applications |"
+          CHANGELOG="${CHANGELOG}\n| macOS (Apple Silicon) | \`slabcut-darwin-arm64\` | Standalone binary (no dock icon) |"
+          CHANGELOG="${CHANGELOG}\n| macOS (Intel) | \`slabcut-darwin-amd64\` | Standalone binary (no dock icon) |"
+          CHANGELOG="${CHANGELOG}\n| Windows | \`slabcut-windows-amd64.exe\` | 64-bit Windows executable |"
+          CHANGELOG="${CHANGELOG}\n| Linux | \`slabcut-linux-amd64\` | 64-bit Linux binary |"
+          CHANGELOG="${CHANGELOG}\n"
+          CHANGELOG="${CHANGELOG}\n> **macOS users**: If you see \"app is damaged\" warning, run: \`xattr -cr SlabCut.app\`"
+
+          # Write changelog to file for the release step
+          echo -e "$CHANGELOG" > /tmp/changelog.md
+          cat /tmp/changelog.md
+
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -155,4 +245,4 @@ jobs:
 
           gh release create "${TAG_NAME}" release/* \
             --title "SlabCut ${TAG_NAME}" \
-            --generate-notes
+            --notes-file /tmp/changelog.md
