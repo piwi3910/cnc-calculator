@@ -32,13 +32,34 @@ type App struct {
 	partsContainer  *fyne.Container
 	stockContainer  *fyne.Container
 	resultContainer *fyne.Container
+	profileSelector *widget.Select
 }
 
 func NewApp(window fyne.Window) *App {
-	return &App{
+	app := &App{
 		window:  window,
 		project: model.NewProject(),
 		history: NewHistory(),
+	}
+	app.loadCustomProfiles()
+	return app
+}
+
+// loadCustomProfiles loads user-defined GCode profiles from disk on startup.
+func (a *App) loadCustomProfiles() {
+	profiles, err := project.LoadCustomProfilesFromDefault()
+	if err != nil {
+		fmt.Printf("Warning: failed to load custom profiles: %v\n", err)
+		return
+	}
+	model.CustomProfiles = profiles
+}
+
+// refreshProfileSelector updates the profile dropdown with all available profiles.
+func (a *App) refreshProfileSelector() {
+	if a.profileSelector != nil {
+		a.profileSelector.Options = model.GetProfileNames()
+		a.profileSelector.Refresh()
 	}
 }
 
@@ -111,6 +132,10 @@ func (a *App) SetupMenus() {
 		fyne.NewMenuItem("Optimize", func() {
 			a.runOptimize()
 			a.tabs.SelectIndex(3) // Switch to Results tab
+		}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Manage GCode Profiles...", func() {
+			a.showProfileManager()
 		}),
 	)
 
@@ -663,13 +688,18 @@ func (a *App) buildSettingsPanel() fyne.CanvasObject {
 	))
 }
 
-func (a *App) buildProfileSelector() *widget.Select {
+func (a *App) buildProfileSelector() fyne.CanvasObject {
 	profileNames := model.GetProfileNames()
-	selector := widget.NewSelect(profileNames, func(selected string) {
+	a.profileSelector = widget.NewSelect(profileNames, func(selected string) {
 		a.project.Settings.GCodeProfile = selected
 	})
-	selector.SetSelected(a.project.Settings.GCodeProfile)
-	return selector
+	a.profileSelector.SetSelected(a.project.Settings.GCodeProfile)
+
+	manageBtn := widget.NewButtonWithIcon("", theme.SettingsIcon(), func() {
+		a.showProfileManager()
+	})
+
+	return container.NewBorder(nil, nil, nil, manageBtn, a.profileSelector)
 }
 
 // ─── Results Panel ─────────────────────────────────────────

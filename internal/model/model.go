@@ -1,6 +1,10 @@
 package model
 
-import "github.com/google/uuid"
+import (
+	"fmt"
+
+	"github.com/google/uuid"
+)
 
 // Grain represents the grain direction constraint for a part.
 type Grain int
@@ -180,6 +184,7 @@ type TabZone struct {
 type GCodeProfile struct {
 	Name        string `json:"name"`        // Profile name
 	Description string `json:"description"` // Profile description
+	IsBuiltIn   bool   `json:"is_built_in"` // Whether this is a built-in profile (cannot be deleted)
 	Units       string `json:"units"`       // "mm" or "inches"
 
 	// Startup codes
@@ -212,6 +217,7 @@ var GCodeProfiles = []GCodeProfile{
 	{
 		Name:          "Grbl",
 		Description:   "Standard Grbl configuration (Arduino CNC shields)",
+		IsBuiltIn:     true,
 		Units:         "mm",
 		StartCode:     []string{"G90", "G21", "G17"},
 		SpindleStart:  "M3 S%d",
@@ -231,6 +237,7 @@ var GCodeProfiles = []GCodeProfile{
 	{
 		Name:          "Mach3",
 		Description:   "Mach3 CNC control software",
+		IsBuiltIn:     true,
 		Units:         "mm",
 		StartCode:     []string{"G90", "G21", "G17", "G94"},
 		SpindleStart:  "M3 S%d",
@@ -250,6 +257,7 @@ var GCodeProfiles = []GCodeProfile{
 	{
 		Name:          "LinuxCNC",
 		Description:   "LinuxCNC (formerly EMC2)",
+		IsBuiltIn:     true,
 		Units:         "mm",
 		StartCode:     []string{"G90", "G21", "G17", "G94"},
 		SpindleStart:  "M3 S%d",
@@ -269,6 +277,7 @@ var GCodeProfiles = []GCodeProfile{
 	{
 		Name:          "Generic",
 		Description:   "Generic standard GCode",
+		IsBuiltIn:     true,
 		Units:         "mm",
 		StartCode:     []string{"G90", "G21"},
 		SpindleStart:  "M3 S%d",
@@ -287,9 +296,21 @@ var GCodeProfiles = []GCodeProfile{
 	},
 }
 
+// CustomProfiles holds user-defined GCode profiles loaded from disk.
+var CustomProfiles []GCodeProfile
+
+// AllProfiles returns all profiles: built-in profiles followed by custom profiles.
+func AllProfiles() []GCodeProfile {
+	all := make([]GCodeProfile, 0, len(GCodeProfiles)+len(CustomProfiles))
+	all = append(all, GCodeProfiles...)
+	all = append(all, CustomProfiles...)
+	return all
+}
+
 // GetProfile returns a GCode profile by name, or the Generic profile if not found.
+// It searches both built-in and custom profiles.
 func GetProfile(name string) GCodeProfile {
-	for _, p := range GCodeProfiles {
+	for _, p := range AllProfiles() {
 		if p.Name == name {
 			return p
 		}
@@ -297,13 +318,58 @@ func GetProfile(name string) GCodeProfile {
 	return GCodeProfiles[len(GCodeProfiles)-1] // Return Generic (last one)
 }
 
-// GetProfileNames returns a list of all available profile names.
+// GetProfileNames returns a list of all available profile names (built-in + custom).
 func GetProfileNames() []string {
 	var names []string
-	for _, p := range GCodeProfiles {
+	for _, p := range AllProfiles() {
 		names = append(names, p.Name)
 	}
 	return names
+}
+
+// AddCustomProfile adds a custom profile. Returns an error if a profile with the same name
+// already exists among built-in profiles.
+func AddCustomProfile(profile GCodeProfile) error {
+	for _, p := range GCodeProfiles {
+		if p.Name == profile.Name {
+			return fmt.Errorf("cannot add custom profile: name %q conflicts with built-in profile", profile.Name)
+		}
+	}
+	// Replace existing custom profile with same name
+	for i, p := range CustomProfiles {
+		if p.Name == profile.Name {
+			CustomProfiles[i] = profile
+			return nil
+		}
+	}
+	CustomProfiles = append(CustomProfiles, profile)
+	return nil
+}
+
+// RemoveCustomProfile removes a custom profile by name. Returns an error if the profile
+// is built-in or does not exist.
+func RemoveCustomProfile(name string) error {
+	for _, p := range GCodeProfiles {
+		if p.Name == name {
+			return fmt.Errorf("cannot remove built-in profile %q", name)
+		}
+	}
+	for i, p := range CustomProfiles {
+		if p.Name == name {
+			CustomProfiles = append(CustomProfiles[:i], CustomProfiles[i+1:]...)
+			return nil
+		}
+	}
+	return fmt.Errorf("custom profile %q not found", name)
+}
+
+// NewCustomProfile creates a new custom profile with sensible defaults based on the Generic profile.
+func NewCustomProfile(name string) GCodeProfile {
+	generic := GetProfile("Generic")
+	generic.Name = name
+	generic.Description = "Custom profile"
+	generic.IsBuiltIn = false
+	return generic
 }
 
 func DefaultSettings() CutSettings {
