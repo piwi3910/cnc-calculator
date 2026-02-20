@@ -25,6 +25,7 @@ import (
 type App struct {
 	window  fyne.Window
 	project model.Project
+	config  model.AppConfig
 	tabs    *container.AppTabs
 	history *History
 
@@ -36,9 +37,18 @@ type App struct {
 }
 
 func NewApp(window fyne.Window) *App {
+	cfg, err := project.LoadAppConfig(project.DefaultConfigPath())
+	if err != nil {
+		cfg = model.DefaultAppConfig()
+	}
+
+	proj := model.NewProject()
+	cfg.ApplyToSettings(&proj.Settings)
+
 	app := &App{
 		window:  window,
-		project: model.NewProject(),
+		project: proj,
+		config:  cfg,
 		history: NewHistory(),
 	}
 	app.loadCustomProfiles()
@@ -70,6 +80,7 @@ func (a *App) SetupMenus() {
 		fyne.NewMenuItem("New Project", func() {
 			a.saveState("New Project")
 			a.project = model.NewProject()
+			a.config.ApplyToSettings(&a.project.Settings)
 			a.refreshPartsList()
 			a.refreshStockList()
 			a.refreshResults()
@@ -139,6 +150,30 @@ func (a *App) SetupMenus() {
 		}),
 	)
 
+	// Admin Menu
+	adminMenu := fyne.NewMenu("Admin",
+		fyne.NewMenuItem("Parts Library...", func() {
+			dialog.ShowInformation("Parts Library",
+				"Coming soon — see issue #12 for progress.", a.window)
+		}),
+		fyne.NewMenuItem("Tool Inventory...", func() {
+			dialog.ShowInformation("Tool Inventory",
+				"Coming soon — see issue #11 for progress.", a.window)
+		}),
+		fyne.NewMenuItem("Stock Inventory...", func() {
+			dialog.ShowInformation("Stock Inventory",
+				"Coming soon — see issue #11 for progress.", a.window)
+		}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Import/Export Data...", func() {
+			a.showImportExportDialog()
+		}),
+		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Settings...", func() {
+			a.showSettingsDialog()
+		}),
+	)
+
 	// Help Menu
 	helpMenu := fyne.NewMenu("Help",
 		fyne.NewMenuItem("About", func() {
@@ -151,6 +186,7 @@ func (a *App) SetupMenus() {
 		fileMenu,
 		editMenu,
 		toolsMenu,
+		adminMenu,
 		helpMenu,
 	)
 	a.window.SetMainMenu(mainMenu)
