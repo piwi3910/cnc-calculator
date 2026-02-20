@@ -254,11 +254,23 @@ func RenderSheetResults(result *model.OptimizeResult, settings model.CutSettings
 
 	if len(result.UnplacedParts) > 0 {
 		warning := widget.NewLabel(fmt.Sprintf(
-			"⚠ %d parts could not be placed! Add more stock sheets.",
+			"WARNING: %d parts could not be placed! Add more stock sheets.",
 			len(result.UnplacedParts),
 		))
 		warning.Importance = widget.DangerImportance
 		items = append(items, warning)
+	}
+
+	// Per-stock-size breakdown
+	sizeBreakdown := buildStockSizeBreakdown(result)
+	if len(sizeBreakdown) > 1 {
+		items = append(items, widget.NewSeparator())
+		breakdownHeader := widget.NewLabel("Stock Size Breakdown:")
+		breakdownHeader.TextStyle = fyne.TextStyle{Bold: true}
+		items = append(items, breakdownHeader)
+		for _, line := range sizeBreakdown {
+			items = append(items, widget.NewLabel(line))
+		}
 	}
 
 	summary := widget.NewLabel(fmt.Sprintf(
@@ -269,4 +281,54 @@ func RenderSheetResults(result *model.OptimizeResult, settings model.CutSettings
 	items = append(items, summary)
 
 	return container.NewVScroll(container.NewVBox(items...))
+}
+
+// buildStockSizeBreakdown generates per-stock-size statistics lines.
+// Groups sheets by their dimensions and reports count, total parts, and efficiency.
+func buildStockSizeBreakdown(result *model.OptimizeResult) []string {
+	if result == nil || len(result.Sheets) == 0 {
+		return nil
+	}
+
+	type sizeKey struct {
+		w, h float64
+	}
+	type sizeStats struct {
+		label      string
+		count      int
+		totalParts int
+		usedArea   float64
+		totalArea  float64
+	}
+
+	// Preserve insertion order with a slice of keys
+	var order []sizeKey
+	statsMap := make(map[sizeKey]*sizeStats)
+
+	for _, sheet := range result.Sheets {
+		key := sizeKey{sheet.Stock.Width, sheet.Stock.Height}
+		if _, exists := statsMap[key]; !exists {
+			order = append(order, key)
+			statsMap[key] = &sizeStats{label: sheet.Stock.Label}
+		}
+		s := statsMap[key]
+		s.count++
+		s.totalParts += len(sheet.Placements)
+		s.usedArea += sheet.UsedArea()
+		s.totalArea += sheet.TotalArea()
+	}
+
+	var lines []string
+	for _, key := range order {
+		s := statsMap[key]
+		eff := 0.0
+		if s.totalArea > 0 {
+			eff = (s.usedArea / s.totalArea) * 100.0
+		}
+		lines = append(lines, fmt.Sprintf(
+			"  %.0f x %.0f: %d sheet(s), %d parts, %.1f%% efficiency",
+			key.w, key.h, s.count, s.totalParts, eff,
+		))
+	}
+	return lines
 }

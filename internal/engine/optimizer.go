@@ -298,9 +298,11 @@ func min(a, b float64) float64 {
 }
 
 // selectBestStock finds the best stock sheet for the remaining parts.
-// Uses a heuristic that prefers:
-// 1. Sheets that can fit the largest remaining part
-// 2. Among those, the smallest sheet (to minimize waste)
+// Uses a trial-packing heuristic: for each candidate stock that can fit the
+// largest remaining part, it runs a quick packing simulation and picks the
+// stock that yields the highest material efficiency. This minimizes waste
+// when multiple stock sizes are available (e.g., large 2440x1220 and small
+// 1220x610 sheets).
 func (o *Optimizer) selectBestStock(stocks []model.StockSheet, parts []model.Part) int {
 	if len(stocks) == 0 || len(parts) == 0 {
 		return -1
@@ -308,11 +310,11 @@ func (o *Optimizer) selectBestStock(stocks []model.StockSheet, parts []model.Par
 
 	// Find the largest remaining part
 	var largestPart *model.Part
-	maxArea := 0.0
+	maxPartArea := 0.0
 	for i := range parts {
 		area := parts[i].Width * parts[i].Height
-		if area > maxArea {
-			maxArea = area
+		if area > maxPartArea {
+			maxPartArea = area
 			largestPart = &parts[i]
 		}
 	}
@@ -331,7 +333,6 @@ func (o *Optimizer) selectBestStock(stocks []model.StockSheet, parts []model.Par
 		uh := usableHeight(stock)
 		kerf := o.Settings.KerfWidth
 
-		// Check if part fits (with kerf)
 		fitsNormal := largestPart.Width+kerf <= uw && largestPart.Height+kerf <= uh
 		fitsRotated := largestPart.Grain == model.GrainNone &&
 			largestPart.Height+kerf <= uw && largestPart.Width+kerf <= uh
@@ -341,30 +342,73 @@ func (o *Optimizer) selectBestStock(stocks []model.StockSheet, parts []model.Par
 		}
 	}
 
-	// If no stock can fit the largest part, fall back to smallest available
+	// If no stock can fit the largest part, return -1 to signal that we
+	// cannot place this part on any available stock.
 	if len(candidates) == 0 {
-		// Return the smallest stock (by area)
-		bestIdx := 0
-		minArea := stocks[0].Width * stocks[0].Height
-		for i := 1; i < len(stocks); i++ {
-			area := stocks[i].Width * stocks[i].Height
-			if area < minArea {
-				minArea = area
-				bestIdx = i
-			}
-		}
-		return bestIdx
+		return -1
 	}
 
-	// Among candidates, pick the smallest (to minimize waste)
-	bestIdx := candidates[0]
-	minArea := stocks[bestIdx].Width * stocks[bestIdx].Height
-	for _, idx := range candidates[1:] {
-		area := stocks[idx].Width * stocks[idx].Height
-		if area < minArea {
-			minArea = area
+	// If only one candidate, skip trial packing.
+	if len(candidates) == 1 {
+		return candidates[0]
+	}
+
+	// De-duplicate candidates by stock dimensions to avoid redundant trials.
+	// Multiple sheets of the same size would produce identical packing results.
+	type stockKey struct {
+		w, h float64
+	}
+	seen := make(map[stockKey]bool)
+	var uniqueCandidates []int
+	for _, idx := range candidates {
+		key := stockKey{stocks[idx].Width, stocks[idx].Height}
+		if !seen[key] {
+			seen[key] = true
+			uniqueCandidates = append(uniqueCandidates, idx)
+		}
+	}
+
+	// Trial-pack on each unique candidate and measure efficiency.
+	bestIdx := -1
+	bestScore := -1.0
+
+	for _, idx := range uniqueCandidates {
+		stock := stocks[idx]
+		tabConfig := stock.Tabs
+		if !tabConfig.Enabled {
+			tabConfig = o.Settings.StockTabs
+		}
+		freeRects := o.calculateFreeRects(stock, tabConfig)
+		packer := newGuillotinePackerWithRects(freeRects, o.Settings.KerfWidth)
+
+		placedArea := 0.0
+		for _, part := range parts {
+			placed := false
+			if ok, _, _ := packer.insert(part.Width, part.Height); ok {
+				placedArea += part.Width * part.Height
+				placed = true
+			}
+			if !placed && part.Grain == model.GrainNone {
+				if ok, _, _ := packer.insert(part.Height, part.Width); ok {
+					placedArea += part.Width * part.Height
+				}
+			}
+		}
+
+		stockArea := stock.Width * stock.Height
+		if stockArea == 0 {
+			continue
+		}
+		efficiency := placedArea / stockArea
+
+		if efficiency > bestScore {
+			bestScore = efficiency
 			bestIdx = idx
 		}
+	}
+
+	if bestIdx < 0 {
+		return candidates[0]
 	}
 	return bestIdx
 }

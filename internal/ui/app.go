@@ -371,6 +371,25 @@ func (a *App) refreshStockList() {
 	}
 }
 
+// stockPreset defines a common stock sheet size for quick selection.
+type stockPreset struct {
+	Label  string
+	Width  float64
+	Height float64
+}
+
+// Common stock sheet presets covering standard panel sizes worldwide.
+var stockPresets = []stockPreset{
+	{Label: "Custom", Width: 0, Height: 0},
+	{Label: "Full Sheet (2440 x 1220)", Width: 2440, Height: 1220},
+	{Label: "Half Sheet (1220 x 1220)", Width: 1220, Height: 1220},
+	{Label: "Quarter Sheet (1220 x 610)", Width: 1220, Height: 610},
+	{Label: "Large Sheet (3050 x 1525)", Width: 3050, Height: 1525},
+	{Label: "Euro Full (2500 x 1250)", Width: 2500, Height: 1250},
+	{Label: "Euro Half (1250 x 1250)", Width: 1250, Height: 1250},
+	{Label: "Small Panel (600 x 300)", Width: 600, Height: 300},
+}
+
 func (a *App) showAddStockDialog() {
 	labelEntry := widget.NewEntry()
 	labelEntry.SetText("Plywood 2440x1220")
@@ -384,8 +403,27 @@ func (a *App) showAddStockDialog() {
 	qtyEntry := widget.NewEntry()
 	qtyEntry.SetText("1")
 
+	// Build preset names for the dropdown
+	presetNames := make([]string, len(stockPresets))
+	for i, p := range stockPresets {
+		presetNames[i] = p.Label
+	}
+
+	presetSelect := widget.NewSelect(presetNames, func(selected string) {
+		for _, p := range stockPresets {
+			if p.Label == selected && p.Width > 0 {
+				widthEntry.SetText(fmt.Sprintf("%.0f", p.Width))
+				heightEntry.SetText(fmt.Sprintf("%.0f", p.Height))
+				labelEntry.SetText(fmt.Sprintf("Plywood %.0fx%.0f", p.Width, p.Height))
+				break
+			}
+		}
+	})
+	presetSelect.PlaceHolder = "Select a preset size..."
+
 	form := dialog.NewForm("Add Stock Sheet", "Add", "Cancel",
 		[]*widget.FormItem{
+			widget.NewFormItem("Preset Size", presetSelect),
 			widget.NewFormItem("Label", labelEntry),
 			widget.NewFormItem("Width (mm)", widthEntry),
 			widget.NewFormItem("Height (mm)", heightEntry),
@@ -407,7 +445,7 @@ func (a *App) showAddStockDialog() {
 		},
 		a.window,
 	)
-	form.Resize(fyne.NewSize(400, 300))
+	form.Resize(fyne.NewSize(450, 400))
 	form.Show()
 }
 
