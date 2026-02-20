@@ -186,6 +186,10 @@ func (a *App) SetupMenus() {
 			a.tabs.SelectIndex(3) // Switch to Results tab
 		}),
 		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Purchasing Calculator...", func() {
+			a.showPurchasingCalculator()
+		}),
+		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Manage GCode Profiles...", func() {
 			a.showProfileManager()
 		}),
@@ -962,6 +966,113 @@ func (a *App) previewGCode() {
 	d := dialog.NewCustom("GCode Toolpath Simulation", "Close", content, a.window)
 	d.Resize(fyne.NewSize(850, 650))
 	d.Show()
+}
+
+// showPurchasingCalculator displays a dialog that calculates how many sheets to purchase.
+func (a *App) showPurchasingCalculator() {
+	if len(a.project.Parts) == 0 {
+		dialog.ShowInformation("No Parts", "Add parts to the project first.", a.window)
+		return
+	}
+
+	// Default sheet size from first stock or inventory
+	defaultW := 2440.0
+	defaultH := 1220.0
+	defaultPrice := 0.0
+	if len(a.project.Stocks) > 0 {
+		defaultW = a.project.Stocks[0].Width
+		defaultH = a.project.Stocks[0].Height
+		defaultPrice = a.project.Stocks[0].PricePerSheet
+	}
+
+	sheetWidthEntry := widget.NewEntry()
+	sheetWidthEntry.SetText(fmt.Sprintf("%.0f", defaultW))
+
+	sheetHeightEntry := widget.NewEntry()
+	sheetHeightEntry.SetText(fmt.Sprintf("%.0f", defaultH))
+
+	wasteEntry := widget.NewEntry()
+	wasteEntry.SetText("15")
+
+	priceEntry := widget.NewEntry()
+	priceEntry.SetText(fmt.Sprintf("%.2f", defaultPrice))
+
+	resultLabel := widget.NewLabel("")
+	resultLabel.Wrapping = fyne.TextWrapWord
+
+	calculateBtn := widget.NewButton("Calculate", func() {
+		sw, _ := strconv.ParseFloat(sheetWidthEntry.Text, 64)
+		sh, _ := strconv.ParseFloat(sheetHeightEntry.Text, 64)
+		waste, _ := strconv.ParseFloat(wasteEntry.Text, 64)
+		price, _ := strconv.ParseFloat(priceEntry.Text, 64)
+
+		if sw <= 0 || sh <= 0 {
+			resultLabel.SetText("Sheet dimensions must be > 0")
+			return
+		}
+
+		est := model.CalculatePurchaseEstimate(a.project.Parts, sw, sh,
+			a.project.Settings.KerfWidth, waste, price)
+
+		var text strings.Builder
+		text.WriteString(fmt.Sprintf("Total part area: %.0f sq mm (%.2f board feet)\n", est.TotalPartArea, est.TotalBoardFeet))
+		text.WriteString(fmt.Sprintf("Sheet area: %.0f sq mm (%.0f x %.0f)\n", est.SheetArea, sw, sh))
+		text.WriteString(fmt.Sprintf("Kerf width: %.1f mm\n\n", est.KerfWidth))
+		text.WriteString(fmt.Sprintf("Sheets needed (minimum): %d\n", est.SheetsNeededMin))
+		text.WriteString(fmt.Sprintf("Sheets recommended (with %.0f%% waste): %d\n", waste, est.SheetsWithWaste))
+		if price > 0 {
+			text.WriteString(fmt.Sprintf("\nEstimated cost: %.2f (%d sheets x %.2f/sheet)\n",
+				est.EstimatedCost, est.SheetsWithWaste, price))
+		}
+
+		resultLabel.SetText(text.String())
+	})
+	calculateBtn.Importance = widget.HighImportance
+
+	// Stock preset dropdown for quick selection
+	presetNames := a.inventory.StockNames()
+	presetSelect := widget.NewSelect(presetNames, func(selected string) {
+		preset := a.inventory.FindStockByName(selected)
+		if preset == nil {
+			return
+		}
+		sheetWidthEntry.SetText(fmt.Sprintf("%.0f", preset.Width))
+		sheetHeightEntry.SetText(fmt.Sprintf("%.0f", preset.Height))
+		if preset.PricePerSheet > 0 {
+			priceEntry.SetText(fmt.Sprintf("%.2f", preset.PricePerSheet))
+		}
+	})
+	presetSelect.PlaceHolder = "Load from stock inventory..."
+
+	content := container.NewVBox(
+		widget.NewLabelWithStyle("Purchasing Calculator", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabel(fmt.Sprintf("Parts in project: %d types, %d total pieces",
+			len(a.project.Parts), countTotalParts(a.project.Parts))),
+		widget.NewSeparator(),
+		widget.NewFormItem("Stock Preset", presetSelect).Widget,
+		container.NewGridWithColumns(2,
+			widget.NewLabel("Sheet Width (mm)"), sheetWidthEntry,
+			widget.NewLabel("Sheet Height (mm)"), sheetHeightEntry,
+			widget.NewLabel("Waste Factor (%)"), wasteEntry,
+			widget.NewLabel("Price per Sheet"), priceEntry,
+		),
+		calculateBtn,
+		widget.NewSeparator(),
+		resultLabel,
+	)
+
+	d := dialog.NewCustom("Purchasing Calculator", "Close", content, a.window)
+	d.Resize(fyne.NewSize(500, 550))
+	d.Show()
+}
+
+// countTotalParts sums up all part quantities.
+func countTotalParts(parts []model.Part) int {
+	total := 0
+	for _, p := range parts {
+		total += p.Quantity
+	}
+	return total
 }
 
 // saveOffcutsToInventory detects usable offcuts from the current result and saves them

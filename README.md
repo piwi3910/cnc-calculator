@@ -46,6 +46,7 @@ A cross-platform desktop application for optimizing rectangular cut lists and ge
 - **Tool & Stock Inventory** — Manage cutting tools and stock sheet presets
 - **Material Pricing** — Track price per sheet in stock inventory; view total material cost in optimization results
 - **Offcuts / Remnants Tracking** — Automatically detects usable rectangular remnants after optimization; save offcuts to stock inventory for future projects
+- **Purchasing Calculator** — Calculate sheets needed, board feet, and estimated cost with configurable waste factor (Tools menu)
 - **Admin Menu** — Application settings, inventory management, data backup/restore
 - **Stock Size Presets** — Quick-select dropdown with common panel sizes (Full, Half, Quarter sheet, Euro sizes)
 
