@@ -139,6 +139,11 @@ type CutSettings struct {
 	PartTabsPerSide int     `json:"part_tabs_per_side"` // Number of tabs per part side
 	UseClimb        bool    `json:"use_climb"`          // Climb vs conventional milling
 
+	// Lead-in/lead-out arcs (for smoother CNC entry and exit)
+	LeadInRadius  float64 `json:"lead_in_radius"`  // Arc radius for approach to cut (0 = disabled)
+	LeadOutRadius float64 `json:"lead_out_radius"` // Arc radius for exit from cut (0 = disabled)
+	LeadInAngle   float64 `json:"lead_in_angle"`   // Approach angle in degrees (default 90)
+
 	// Stock sheet holding tabs (for securing sheet to CNC bed)
 	StockTabs StockTabConfig `json:"stock_tabs"` // Stock sheet tab configuration
 
@@ -318,6 +323,9 @@ func DefaultSettings() CutSettings {
 		PartTabHeight:   2.0,
 		PartTabsPerSide: 0, // Disabled by default
 		UseClimb:        true,
+		LeadInRadius:    0.0,  // Disabled by default
+		LeadOutRadius:   0.0,  // Disabled by default
+		LeadInAngle:     90.0, // 90 degree approach angle
 		StockTabs: StockTabConfig{
 			Enabled:       true, // Enabled by default
 			AdvancedMode:  false,

@@ -628,6 +628,12 @@ func (a *App) buildSettingsPanel() fyne.CanvasObject {
 		widget.NewLabel("Pass Depth (mm)"), floatEntry(&s.PassDepth),
 	))
 
+	leadInOutSection := widget.NewCard("Lead-In / Lead-Out Arcs", "Arc approach and exit for smoother cuts", container.NewGridWithColumns(2,
+		widget.NewLabel("Lead-In Radius (mm)"), floatEntry(&s.LeadInRadius),
+		widget.NewLabel("Lead-Out Radius (mm)"), floatEntry(&s.LeadOutRadius),
+		widget.NewLabel("Approach Angle (degrees)"), floatEntry(&s.LeadInAngle),
+	))
+
 	// Stock sheet holding tabs (for securing sheet to CNC bed)
 	stockTabEnabled := widget.NewCheck("", func(b bool) { s.StockTabs.Enabled = b })
 	stockTabEnabled.Checked = s.StockTabs.Enabled
@@ -649,6 +655,7 @@ func (a *App) buildSettingsPanel() fyne.CanvasObject {
 	return container.NewVScroll(container.NewVBox(
 		optimizerSection,
 		cncSection,
+		leadInOutSection,
 		stockTabSection,
 	))
 }

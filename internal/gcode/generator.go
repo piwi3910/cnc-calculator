@@ -229,6 +229,9 @@ func (g *Generator) writeRectPart(b *strings.Builder, p model.Placement, partNum
 	// Generate tabs info
 	tabs := g.calculateTabs(p)
 
+	hasLeadIn := g.Settings.LeadInRadius > 0
+	hasLeadOut := g.Settings.LeadOutRadius > 0
+
 	for pass := 1; pass <= numPasses; pass++ {
 		depth := float64(pass) * g.Settings.PassDepth
 		if depth > g.Settings.CutDepth {
@@ -238,9 +241,14 @@ func (g *Generator) writeRectPart(b *strings.Builder, p model.Placement, partNum
 
 		b.WriteString(g.comment(fmt.Sprintf("Pass %d/%d, depth=%.2fmm", pass, numPasses, depth)))
 
-		// Rapid to start (top-left corner, slightly outside)
-		b.WriteString(fmt.Sprintf("%s X%s Y%s\n", g.profile.RapidMove, g.format(x0), g.format(y0)))
-		b.WriteString(fmt.Sprintf("%s Z%s F%s ; Plunge\n", g.profile.FeedMove, g.format(-depth), g.format(g.Settings.PlungeRate)))
+		if hasLeadIn {
+			// Lead-in arc: rapid to arc start, plunge, then arc onto the perimeter
+			g.writeLeadIn(b, x0, y0, depth)
+		} else {
+			// Rapid to start (top-left corner, slightly outside)
+			b.WriteString(fmt.Sprintf("%s X%s Y%s\n", g.profile.RapidMove, g.format(x0), g.format(y0)))
+			b.WriteString(fmt.Sprintf("%s Z%s F%s ; Plunge\n", g.profile.FeedMove, g.format(-depth), g.format(g.Settings.PlungeRate)))
+		}
 
 		// Cut rectangle perimeter (clockwise for climb milling)
 		if isFinalPass && g.Settings.PartTabsPerSide > 0 {
@@ -249,11 +257,95 @@ func (g *Generator) writeRectPart(b *strings.Builder, p model.Placement, partNum
 			g.writePerimeter(b, x0, y0, x1, y1)
 		}
 
+		if hasLeadOut {
+			// Lead-out arc: arc away from perimeter, then retract
+			g.writeLeadOut(b, x0, y0)
+		}
+
 		// Retract between passes
 		b.WriteString(fmt.Sprintf("%s Z%s\n", g.profile.RapidMove, g.format(g.Settings.SafeZ)))
 	}
 
 	b.WriteString("\n")
+}
+
+// writeLeadIn generates an arc approach to the perimeter start point (x0, y0).
+// The arc starts from an offset position and curves onto the cut path, providing
+// a smooth entry that reduces tool deflection and improves surface finish.
+//
+// For climb milling (clockwise perimeter), the perimeter starts at (x0,y0) and
+// moves right along the bottom edge. The lead-in arc approaches from below-left,
+// curving up to meet the start point. We use G3 (counter-clockwise arc) so the
+// tool sweeps into the cut direction smoothly.
+//
+// For conventional milling (counter-clockwise perimeter), we use G2 (clockwise arc).
+func (g *Generator) writeLeadIn(b *strings.Builder, x0, y0, depth float64) {
+	r := g.Settings.LeadInRadius
+	angle := g.Settings.LeadInAngle * math.Pi / 180.0
+
+	// Arc center is at the perimeter start point offset inward.
+	// For a clockwise (climb) perimeter starting at (x0,y0) moving right,
+	// the arc center is directly below the start point (negative Y direction).
+	// The arc start is offset from the center by the radius at the approach angle.
+	centerX := x0
+	centerY := y0 - r
+
+	// Arc start position: offset from center by radius at the approach angle
+	// Angle is measured from the line connecting center to the perimeter point.
+	arcStartX := centerX - r*math.Sin(angle)
+	arcStartY := centerY + r - r*math.Cos(angle)
+
+	// I, J are relative offsets from arc start to arc center
+	iOffset := centerX - arcStartX
+	jOffset := centerY - arcStartY
+
+	b.WriteString(g.comment("Lead-in arc"))
+	// Rapid to arc start position
+	b.WriteString(fmt.Sprintf("%s X%s Y%s\n", g.profile.RapidMove, g.format(arcStartX), g.format(arcStartY)))
+	// Plunge to cut depth
+	b.WriteString(fmt.Sprintf("%s Z%s F%s\n", g.profile.FeedMove, g.format(-depth), g.format(g.Settings.PlungeRate)))
+
+	// Arc to perimeter start point
+	arcCmd := "G3" // Counter-clockwise for climb milling lead-in
+	if !g.Settings.UseClimb {
+		arcCmd = "G2" // Clockwise for conventional milling lead-in
+	}
+	b.WriteString(fmt.Sprintf("%s X%s Y%s I%s J%s F%s\n",
+		arcCmd, g.format(x0), g.format(y0),
+		g.format(iOffset), g.format(jOffset),
+		g.format(g.Settings.FeedRate)))
+}
+
+// writeLeadOut generates an arc exit from the perimeter end point (x0, y0).
+// After the perimeter cut returns to the start point, the lead-out arc continues
+// the motion away from the cut, providing a smooth exit that prevents dwell marks.
+//
+// The arc mirrors the lead-in geometry, curving away from the perimeter.
+func (g *Generator) writeLeadOut(b *strings.Builder, x0, y0 float64) {
+	r := g.Settings.LeadOutRadius
+	angle := g.Settings.LeadInAngle * math.Pi / 180.0
+
+	// Arc center is at the perimeter end point (same as start) offset inward.
+	centerX := x0
+	centerY := y0 - r
+
+	// Arc end position: mirror of lead-in start
+	arcEndX := centerX - r*math.Sin(angle)
+	arcEndY := centerY + r - r*math.Cos(angle)
+
+	// I, J are relative offsets from current position (x0, y0) to arc center
+	iOffset := centerX - x0
+	jOffset := centerY - y0
+
+	b.WriteString(g.comment("Lead-out arc"))
+	arcCmd := "G3" // Counter-clockwise for climb milling lead-out
+	if !g.Settings.UseClimb {
+		arcCmd = "G2" // Clockwise for conventional milling lead-out
+	}
+	b.WriteString(fmt.Sprintf("%s X%s Y%s I%s J%s F%s\n",
+		arcCmd, g.format(arcEndX), g.format(arcEndY),
+		g.format(iOffset), g.format(jOffset),
+		g.format(g.Settings.FeedRate)))
 }
 
 func (g *Generator) writePerimeter(b *strings.Builder, x0, y0, x1, y1 float64) {
