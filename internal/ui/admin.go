@@ -160,3 +160,155 @@ func (a *App) showImportExportDialog() {
 func (a *App) saveConfig() error {
 	return project.SaveAppConfig(project.DefaultConfigPath(), a.config)
 }
+
+// showTemplateManager displays the project template management dialog.
+func (a *App) showTemplateManager() {
+	listContainer := container.NewVBox()
+
+	var refreshList func()
+	refreshList = func() {
+		listContainer.RemoveAll()
+
+		if len(a.templates.Templates) == 0 {
+			listContainer.Add(widget.NewLabel("No templates saved yet."))
+			return
+		}
+
+		header := container.NewGridWithColumns(4,
+			widget.NewLabelWithStyle("Name", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			widget.NewLabelWithStyle("Parts / Stocks", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{}),
+			widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{}),
+		)
+		listContainer.Add(header)
+		listContainer.Add(widget.NewSeparator())
+
+		for i := range a.templates.Templates {
+			idx := i
+			tmpl := a.templates.Templates[idx]
+
+			loadBtn := widget.NewButton("Load", func() {
+				dialog.ShowConfirm("Load Template",
+					fmt.Sprintf("Load template %q? This will replace your current project.", tmpl.Name),
+					func(ok bool) {
+						if !ok {
+							return
+						}
+						a.saveState("Load Template")
+						proj := tmpl.ToProject(tmpl.Name)
+						a.project = proj
+						a.refreshPartsList()
+						a.refreshStockList()
+						a.refreshResults()
+						dialog.ShowInformation("Template Loaded",
+							fmt.Sprintf("Loaded template %q with %d parts and %d stock sheets.",
+								tmpl.Name, len(tmpl.Parts), len(tmpl.Stocks)),
+							a.window)
+					},
+					a.window,
+				)
+			})
+
+			deleteBtn := widget.NewButton("Delete", func() {
+				dialog.ShowConfirm("Delete Template",
+					fmt.Sprintf("Delete template %q?", tmpl.Name),
+					func(ok bool) {
+						if !ok {
+							return
+						}
+						a.templates.Remove(tmpl.ID)
+						if err := project.SaveDefaultTemplates(a.templates); err != nil {
+							dialog.ShowError(fmt.Errorf("failed to save templates: %w", err), a.window)
+						}
+						refreshList()
+					},
+					a.window,
+				)
+			})
+
+			row := container.NewGridWithColumns(4,
+				widget.NewLabel(tmpl.Name),
+				widget.NewLabel(fmt.Sprintf("%d parts, %d stocks", len(tmpl.Parts), len(tmpl.Stocks))),
+				loadBtn,
+				deleteBtn,
+			)
+			listContainer.Add(row)
+		}
+	}
+
+	refreshList()
+
+	// Save current project as template button
+	saveAsBtn := widget.NewButton("Save Current Project as Template...", func() {
+		a.showSaveAsTemplateDialog(refreshList)
+	})
+
+	content := container.NewBorder(
+		container.NewVBox(
+			widget.NewLabel("Manage project templates. Save your current project configuration\nas a reusable template, or load a template to start a new project."),
+			widget.NewSeparator(),
+			saveAsBtn,
+			widget.NewSeparator(),
+		),
+		nil, nil, nil,
+		container.NewVScroll(listContainer),
+	)
+
+	d := dialog.NewCustom("Project Templates", "Close", content, a.window)
+	d.Resize(fyne.NewSize(600, 450))
+	d.Show()
+}
+
+// showSaveAsTemplateDialog shows a form to save the current project as a template.
+func (a *App) showSaveAsTemplateDialog(onSave func()) {
+	nameEntry := widget.NewEntry()
+	nameEntry.SetText(a.project.Name)
+	nameEntry.SetPlaceHolder("Template name")
+
+	descEntry := widget.NewMultiLineEntry()
+	descEntry.SetPlaceHolder("Optional description")
+	descEntry.SetMinRowsVisible(3)
+
+	form := dialog.NewForm("Save as Template", "Save", "Cancel",
+		[]*widget.FormItem{
+			widget.NewFormItem("Name", nameEntry),
+			widget.NewFormItem("Description", descEntry),
+		},
+		func(ok bool) {
+			if !ok {
+				return
+			}
+			name := nameEntry.Text
+			if name == "" {
+				dialog.ShowError(fmt.Errorf("template name cannot be empty"), a.window)
+				return
+			}
+
+			tmpl := model.NewProjectTemplate(
+				name,
+				descEntry.Text,
+				a.project.Parts,
+				a.project.Stocks,
+				a.project.Settings,
+			)
+			a.templates.Add(tmpl)
+
+			if err := project.SaveDefaultTemplates(a.templates); err != nil {
+				dialog.ShowError(fmt.Errorf("failed to save templates: %w", err), a.window)
+				return
+			}
+
+			dialog.ShowInformation("Template Saved",
+				fmt.Sprintf("Template %q saved with %d parts and %d stock sheets.",
+					name, len(tmpl.Parts), len(tmpl.Stocks)),
+				a.window)
+
+			if onSave != nil {
+				onSave()
+			}
+		},
+		a.window,
+	)
+	form.Resize(fyne.NewSize(450, 300))
+	form.Show()
+}

@@ -36,6 +36,9 @@ type App struct {
 	inventory     model.Inventory
 	inventoryPath string
 
+	// Template management
+	templates model.TemplateStore
+
 	// UI references for dynamic updates
 	partsContainer  *fyne.Container
 	stockContainer  *fyne.Container
@@ -68,6 +71,7 @@ func NewApp(application fyne.App, window fyne.Window) *App {
 	}
 	app.loadCustomProfiles()
 	app.loadInventory()
+	app.loadTemplates()
 	app.applyTheme()
 	return app
 }
@@ -94,6 +98,17 @@ func (a *App) loadInventory() {
 	}
 	a.inventory = inv
 	a.inventoryPath = path
+}
+
+// loadTemplates loads project templates from disk on startup.
+func (a *App) loadTemplates() {
+	store, err := project.LoadDefaultTemplates()
+	if err != nil {
+		fmt.Printf("Warning: could not load templates: %v\n", err)
+		a.templates = model.NewTemplateStore()
+		return
+	}
+	a.templates = store
 }
 
 // loadCustomProfiles loads user-defined GCode profiles from disk on startup.
@@ -208,6 +223,9 @@ func (a *App) SetupMenus() {
 		}),
 		fyne.NewMenuItem("Stock Inventory...", func() {
 			a.showStockInventoryDialog()
+		}),
+		fyne.NewMenuItem("Project Templates...", func() {
+			a.showTemplateManager()
 		}),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Import/Export Data...", func() {

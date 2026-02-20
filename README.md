@@ -54,6 +54,7 @@ A cross-platform desktop application for optimizing rectangular cut lists and ge
 - **Purchasing Calculator** — Calculate sheets needed, board feet, and estimated cost with configurable waste factor (Tools menu)
 - **Edge Banding Calculator** — Mark which edges need banding per part (T/B/L/R); view per-part and total banding length with waste factor in results
 - **What-If Comparison** — Compare multiple optimization scenarios side by side (algorithm, kerf, edge trim) and apply the best result
+- **Project Templates** — Save and load reusable project templates (parts, stocks, settings) from the Admin menu
 - **Admin Menu** — Application settings, inventory management, data backup/restore
 - **Stock Size Presets** — Quick-select dropdown with common panel sizes (Full, Half, Quarter sheet, Euro sizes)
 
@@ -108,6 +109,7 @@ SlabCut/
 │   │   ├── model.go            # Core types (Part, StockSheet, Placement, etc.)
 │   │   ├── inventory.go        # Tool/stock inventory types
 │   │   ├── library.go          # Parts library types
+│   │   ├── template.go         # Project template types
 │   │   └── appconfig.go        # Application configuration
 │   ├── engine/
 │   │   ├── optimizer.go        # Guillotine bin-packing algorithm
@@ -126,6 +128,7 @@ SlabCut/
 │   │   ├── profiles.go         # Custom GCode profile persistence
 │   │   ├── inventory.go        # Tool/stock inventory persistence
 │   │   ├── library.go          # Parts library persistence
+│   │   ├── templates.go        # Project template persistence
 │   │   └── appconfig.go        # App config persistence
 │   └── ui/
 │       ├── app.go              # Main UI (tabs, menus, dialogs)
