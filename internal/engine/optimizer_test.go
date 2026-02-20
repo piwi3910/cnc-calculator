@@ -283,3 +283,116 @@ func TestOptimize_Efficiency(t *testing.T) {
 	require.Len(t, result.Sheets, 1)
 	assert.InDelta(t, 50.0, result.TotalEfficiency(), 0.1, "efficiency should be ~50%%")
 }
+
+// ─── Sheet Grain Matching Tests ────────────────────────────────────
+
+func TestCanPlaceWithGrain(t *testing.T) {
+	tests := []struct {
+		name       string
+		partGrain  model.Grain
+		stockGrain model.Grain
+		wantNormal bool
+		wantRotate bool
+	}{
+		{"None/None", model.GrainNone, model.GrainNone, true, true},
+		{"None/Horizontal", model.GrainNone, model.GrainHorizontal, true, true},
+		{"None/Vertical", model.GrainNone, model.GrainVertical, true, true},
+		{"Horizontal/None", model.GrainHorizontal, model.GrainNone, true, false},
+		{"Vertical/None", model.GrainVertical, model.GrainNone, true, false},
+		{"Horizontal/Horizontal", model.GrainHorizontal, model.GrainHorizontal, true, false},
+		{"Vertical/Vertical", model.GrainVertical, model.GrainVertical, true, false},
+		{"Horizontal/Vertical", model.GrainHorizontal, model.GrainVertical, false, false},
+		{"Vertical/Horizontal", model.GrainVertical, model.GrainHorizontal, false, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			canNormal, canRotated := model.CanPlaceWithGrain(tc.partGrain, tc.stockGrain)
+			assert.Equal(t, tc.wantNormal, canNormal, "canNormal mismatch")
+			assert.Equal(t, tc.wantRotate, canRotated, "canRotated mismatch")
+		})
+	}
+}
+
+func TestOptimize_StockGrainMatchesPart(t *testing.T) {
+	// Part with horizontal grain on horizontal stock should be placed normally.
+	opt := New(defaultTestSettings())
+
+	part := model.NewPart("A", 500, 300, 1)
+	part.Grain = model.GrainHorizontal
+
+	stock := model.NewStockSheet("Sheet", 1000, 600, 1)
+	stock.Grain = model.GrainHorizontal
+
+	result := opt.Optimize([]model.Part{part}, []model.StockSheet{stock})
+
+	require.Len(t, result.UnplacedParts, 0, "part should be placed on matching grain stock")
+	require.Len(t, result.Sheets, 1)
+	assert.False(t, result.Sheets[0].Placements[0].Rotated, "should not be rotated")
+}
+
+func TestOptimize_StockGrainMismatchBlocksPlacement(t *testing.T) {
+	// Part with horizontal grain on vertical-grain stock should not be placed.
+	opt := New(defaultTestSettings())
+
+	part := model.NewPart("A", 500, 300, 1)
+	part.Grain = model.GrainHorizontal
+
+	stock := model.NewStockSheet("Sheet", 1000, 600, 1)
+	stock.Grain = model.GrainVertical
+
+	result := opt.Optimize([]model.Part{part}, []model.StockSheet{stock})
+
+	assert.Len(t, result.UnplacedParts, 1, "part should not be placed on mismatched grain stock")
+}
+
+func TestOptimize_StockGrainNoneAllowsAnyPart(t *testing.T) {
+	// Stock with no grain should accept parts with any grain direction.
+	opt := New(defaultTestSettings())
+
+	partH := model.NewPart("H", 500, 300, 1)
+	partH.Grain = model.GrainHorizontal
+	partV := model.NewPart("V", 400, 200, 1)
+	partV.Grain = model.GrainVertical
+
+	stock := model.NewStockSheet("Sheet", 2000, 1000, 1)
+	stock.Grain = model.GrainNone
+
+	result := opt.Optimize([]model.Part{partH, partV}, []model.StockSheet{stock})
+
+	assert.Len(t, result.UnplacedParts, 0, "all parts should be placed on grain-none stock")
+}
+
+func TestOptimize_StockGrainPreventsRotation(t *testing.T) {
+	// Part is 800x400, stock is 500x1000 with horizontal grain.
+	// Part has horizontal grain. Normally it would need rotation to fit,
+	// but grain prevents it.
+	opt := New(defaultTestSettings())
+
+	part := model.NewPart("A", 800, 400, 1)
+	part.Grain = model.GrainHorizontal
+
+	stock := model.NewStockSheet("Sheet", 500, 1000, 1)
+	stock.Grain = model.GrainHorizontal
+
+	result := opt.Optimize([]model.Part{part}, []model.StockSheet{stock})
+
+	assert.Len(t, result.UnplacedParts, 1, "grain-locked part should not fit when rotation is needed")
+}
+
+func TestOptimize_NoGrainPartOnGrainStock(t *testing.T) {
+	// Part with no grain on a grain stock: should allow rotation freely.
+	opt := New(defaultTestSettings())
+
+	part := model.NewPart("A", 800, 400, 1)
+	part.Grain = model.GrainNone
+
+	stock := model.NewStockSheet("Sheet", 500, 1000, 1)
+	stock.Grain = model.GrainHorizontal
+
+	result := opt.Optimize([]model.Part{part}, []model.StockSheet{stock})
+
+	require.Len(t, result.UnplacedParts, 0, "no-grain part should fit rotated on grain stock")
+	require.Len(t, result.Sheets, 1)
+	assert.True(t, result.Sheets[0].Placements[0].Rotated, "should be rotated to fit")
+}

@@ -532,11 +532,12 @@ func (a *App) refreshStockList() {
 		return
 	}
 
-	header := container.NewGridWithColumns(6,
+	header := container.NewGridWithColumns(7,
 		widget.NewLabelWithStyle("Label", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewLabelWithStyle("Width (mm)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewLabelWithStyle("Height (mm)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewLabelWithStyle("Qty", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabelWithStyle("Grain", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{}),
 		widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{}),
 	)
@@ -546,11 +547,12 @@ func (a *App) refreshStockList() {
 	for i := range a.project.Stocks {
 		idx := i
 		s := a.project.Stocks[idx]
-		row := container.NewGridWithColumns(6,
+		row := container.NewGridWithColumns(7,
 			widget.NewLabel(s.Label),
 			widget.NewLabel(fmt.Sprintf("%.1f", s.Width)),
 			widget.NewLabel(fmt.Sprintf("%.1f", s.Height)),
 			widget.NewLabel(fmt.Sprintf("%d", s.Quantity)),
+			widget.NewLabel(s.Grain.String()),
 			widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
 				a.showEditStockDialog(idx)
 			}),
@@ -614,6 +616,9 @@ func (a *App) showAddStockDialog() {
 	})
 	presetSelect.PlaceHolder = "Select a preset size..."
 
+	grainSelect := widget.NewSelect([]string{"None", "Horizontal", "Vertical"}, nil)
+	grainSelect.SetSelected("None")
+
 	form := dialog.NewForm("Add Stock Sheet", "Add", "Cancel",
 		[]*widget.FormItem{
 			widget.NewFormItem("Preset Size", presetSelect),
@@ -621,6 +626,7 @@ func (a *App) showAddStockDialog() {
 			widget.NewFormItem("Width (mm)", widthEntry),
 			widget.NewFormItem("Height (mm)", heightEntry),
 			widget.NewFormItem("Quantity", qtyEntry),
+			widget.NewFormItem("Grain Direction", grainSelect),
 		},
 		func(ok bool) {
 			if !ok {
@@ -634,12 +640,19 @@ func (a *App) showAddStockDialog() {
 				return
 			}
 			a.saveState("Add Stock Sheet")
-			a.project.Stocks = append(a.project.Stocks, model.NewStockSheet(labelEntry.Text, w, h, q))
+			stock := model.NewStockSheet(labelEntry.Text, w, h, q)
+			switch grainSelect.Selected {
+			case "Horizontal":
+				stock.Grain = model.GrainHorizontal
+			case "Vertical":
+				stock.Grain = model.GrainVertical
+			}
+			a.project.Stocks = append(a.project.Stocks, stock)
 			a.refreshStockList()
 		},
 		a.window,
 	)
-	form.Resize(fyne.NewSize(450, 400))
+	form.Resize(fyne.NewSize(450, 450))
 	form.Show()
 }
 
@@ -658,12 +671,16 @@ func (a *App) showEditStockDialog(idx int) {
 	qtyEntry := widget.NewEntry()
 	qtyEntry.SetText(fmt.Sprintf("%d", s.Quantity))
 
+	grainSelect := widget.NewSelect([]string{"None", "Horizontal", "Vertical"}, nil)
+	grainSelect.SetSelected(s.Grain.String())
+
 	form := dialog.NewForm("Edit Stock Sheet", "Save", "Cancel",
 		[]*widget.FormItem{
 			widget.NewFormItem("Label", labelEntry),
 			widget.NewFormItem("Width (mm)", widthEntry),
 			widget.NewFormItem("Height (mm)", heightEntry),
 			widget.NewFormItem("Quantity", qtyEntry),
+			widget.NewFormItem("Grain Direction", grainSelect),
 		},
 		func(ok bool) {
 			if !ok {
@@ -681,11 +698,19 @@ func (a *App) showEditStockDialog(idx int) {
 			a.project.Stocks[idx].Width = w
 			a.project.Stocks[idx].Height = h
 			a.project.Stocks[idx].Quantity = q
+			switch grainSelect.Selected {
+			case "Horizontal":
+				a.project.Stocks[idx].Grain = model.GrainHorizontal
+			case "Vertical":
+				a.project.Stocks[idx].Grain = model.GrainVertical
+			default:
+				a.project.Stocks[idx].Grain = model.GrainNone
+			}
 			a.refreshStockList()
 		},
 		a.window,
 	)
-	form.Resize(fyne.NewSize(400, 300))
+	form.Resize(fyne.NewSize(400, 350))
 	form.Show()
 }
 

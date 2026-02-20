@@ -84,19 +84,24 @@ func (o *Optimizer) optimizeGuillotine(parts []model.Part, stocks []model.StockS
 		for _, part := range remaining {
 			placed := false
 
+			// Check grain compatibility between part and stock sheet
+			canNormal, canRotated := model.CanPlaceWithGrain(part.Grain, stock.Grain)
+
 			// Try original orientation
-			if ok, x, y := packer.insert(part.Width, part.Height); ok {
-				sheet.Placements = append(sheet.Placements, model.Placement{
-					Part:    part,
-					X:       x,
-					Y:       y,
-					Rotated: false,
-				})
-				placed = true
+			if canNormal {
+				if ok, x, y := packer.insert(part.Width, part.Height); ok {
+					sheet.Placements = append(sheet.Placements, model.Placement{
+						Part:    part,
+						X:       x,
+						Y:       y,
+						Rotated: false,
+					})
+					placed = true
+				}
 			}
 
 			// Try rotated (if grain allows)
-			if !placed && part.Grain == model.GrainNone {
+			if !placed && canRotated {
 				if ok, x, y := packer.insert(part.Height, part.Width); ok {
 					sheet.Placements = append(sheet.Placements, model.Placement{
 						Part:    part,
@@ -334,15 +339,17 @@ func (o *Optimizer) selectBestStock(stocks []model.StockSheet, parts []model.Par
 		return s.Height - 2*o.Settings.EdgeTrim
 	}
 
-	// Find stocks that can fit the largest part (considering rotation)
+	// Find stocks that can fit the largest part (considering rotation and grain)
 	var candidates []int
 	for i, stock := range stocks {
 		uw := usableWidth(stock)
 		uh := usableHeight(stock)
 		kerf := o.Settings.KerfWidth
 
-		fitsNormal := largestPart.Width+kerf <= uw && largestPart.Height+kerf <= uh
-		fitsRotated := largestPart.Grain == model.GrainNone &&
+		canNormal, canRotated := model.CanPlaceWithGrain(largestPart.Grain, stock.Grain)
+
+		fitsNormal := canNormal && largestPart.Width+kerf <= uw && largestPart.Height+kerf <= uh
+		fitsRotated := canRotated &&
 			largestPart.Height+kerf <= uw && largestPart.Width+kerf <= uh
 
 		if fitsNormal || fitsRotated {
@@ -392,11 +399,14 @@ func (o *Optimizer) selectBestStock(stocks []model.StockSheet, parts []model.Par
 		placedArea := 0.0
 		for _, part := range parts {
 			placed := false
-			if ok, _, _ := packer.insert(part.Width, part.Height); ok {
-				placedArea += part.Width * part.Height
-				placed = true
+			canNormal, canRotated := model.CanPlaceWithGrain(part.Grain, stock.Grain)
+			if canNormal {
+				if ok, _, _ := packer.insert(part.Width, part.Height); ok {
+					placedArea += part.Width * part.Height
+					placed = true
+				}
 			}
-			if !placed && part.Grain == model.GrainNone {
+			if !placed && canRotated {
 				if ok, _, _ := packer.insert(part.Height, part.Width); ok {
 					placedArea += part.Width * part.Height
 				}

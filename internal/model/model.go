@@ -98,7 +98,8 @@ type StockSheet struct {
 	Width    float64        `json:"width"`  // mm
 	Height   float64        `json:"height"` // mm
 	Quantity int            `json:"quantity"`
-	Tabs     StockTabConfig `json:"tabs"` // Override default tab config for this sheet
+	Grain    Grain          `json:"grain"` // Sheet grain direction (None, Horizontal, Vertical)
+	Tabs     StockTabConfig `json:"tabs"`  // Override default tab config for this sheet
 }
 
 func NewStockSheet(label string, w, h float64, qty int) StockSheet {
@@ -108,8 +109,39 @@ func NewStockSheet(label string, w, h float64, qty int) StockSheet {
 		Width:    w,
 		Height:   h,
 		Quantity: qty,
+		Grain:    GrainNone,
 		Tabs:     StockTabConfig{Enabled: false}, // Use defaults by default
 	}
+}
+
+// CanPlaceWithGrain checks whether a part with the given grain constraint can be
+// placed on a stock sheet with the given grain, optionally rotated 90 degrees.
+// Returns (canPlaceNormal, canPlaceRotated).
+//
+// Rules:
+//   - If the part grain is None, it can always be placed in either orientation
+//     (subject to the stock grain not conflicting).
+//   - If the stock grain is None, any part grain is acceptable without restriction.
+//   - If both part and stock have a grain, the part grain must match the stock grain.
+//     Rotation is only allowed if after rotation the grain alignment still matches
+//     (which for H/V grains means rotation is NOT allowed when both have grain).
+func CanPlaceWithGrain(partGrain, stockGrain Grain) (canNormal, canRotated bool) {
+	// If part has no grain preference, rotation is always allowed
+	if partGrain == GrainNone {
+		return true, true
+	}
+	// If stock has no grain, part grain is unconstrained by the stock
+	if stockGrain == GrainNone {
+		// Part has grain, so it cannot be rotated (grain direction would flip)
+		return true, false
+	}
+	// Both have grain: part can only be placed if grains match, and rotation
+	// would flip grain so it is not allowed
+	if partGrain == stockGrain {
+		return true, false
+	}
+	// Grain mismatch: cannot place at all
+	return false, false
 }
 
 // Algorithm represents the optimizer algorithm to use.
