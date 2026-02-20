@@ -532,11 +532,12 @@ func (a *App) refreshStockList() {
 		return
 	}
 
-	header := container.NewGridWithColumns(6,
+	header := container.NewGridWithColumns(7,
 		widget.NewLabelWithStyle("Label", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewLabelWithStyle("Width (mm)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewLabelWithStyle("Height (mm)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewLabelWithStyle("Qty", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabelWithStyle("Price/Sheet", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{}),
 		widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{}),
 	)
@@ -546,11 +547,16 @@ func (a *App) refreshStockList() {
 	for i := range a.project.Stocks {
 		idx := i
 		s := a.project.Stocks[idx]
-		row := container.NewGridWithColumns(6,
+		priceLabel := "-"
+		if s.PricePerSheet > 0 {
+			priceLabel = fmt.Sprintf("%.2f", s.PricePerSheet)
+		}
+		row := container.NewGridWithColumns(7,
 			widget.NewLabel(s.Label),
 			widget.NewLabel(fmt.Sprintf("%.1f", s.Width)),
 			widget.NewLabel(fmt.Sprintf("%.1f", s.Height)),
 			widget.NewLabel(fmt.Sprintf("%d", s.Quantity)),
+			widget.NewLabel(priceLabel),
 			widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
 				a.showEditStockDialog(idx)
 			}),
@@ -614,6 +620,10 @@ func (a *App) showAddStockDialog() {
 	})
 	presetSelect.PlaceHolder = "Select a preset size..."
 
+	priceEntry := widget.NewEntry()
+	priceEntry.SetPlaceHolder("0.00 (optional)")
+	priceEntry.SetText("0")
+
 	form := dialog.NewForm("Add Stock Sheet", "Add", "Cancel",
 		[]*widget.FormItem{
 			widget.NewFormItem("Preset Size", presetSelect),
@@ -621,6 +631,7 @@ func (a *App) showAddStockDialog() {
 			widget.NewFormItem("Width (mm)", widthEntry),
 			widget.NewFormItem("Height (mm)", heightEntry),
 			widget.NewFormItem("Quantity", qtyEntry),
+			widget.NewFormItem("Price per Sheet", priceEntry),
 		},
 		func(ok bool) {
 			if !ok {
@@ -634,12 +645,14 @@ func (a *App) showAddStockDialog() {
 				return
 			}
 			a.saveState("Add Stock Sheet")
-			a.project.Stocks = append(a.project.Stocks, model.NewStockSheet(labelEntry.Text, w, h, q))
+			sheet := model.NewStockSheet(labelEntry.Text, w, h, q)
+			sheet.PricePerSheet, _ = strconv.ParseFloat(priceEntry.Text, 64)
+			a.project.Stocks = append(a.project.Stocks, sheet)
 			a.refreshStockList()
 		},
 		a.window,
 	)
-	form.Resize(fyne.NewSize(450, 400))
+	form.Resize(fyne.NewSize(450, 450))
 	form.Show()
 }
 
@@ -658,12 +671,16 @@ func (a *App) showEditStockDialog(idx int) {
 	qtyEntry := widget.NewEntry()
 	qtyEntry.SetText(fmt.Sprintf("%d", s.Quantity))
 
+	priceEntry := widget.NewEntry()
+	priceEntry.SetText(fmt.Sprintf("%.2f", s.PricePerSheet))
+
 	form := dialog.NewForm("Edit Stock Sheet", "Save", "Cancel",
 		[]*widget.FormItem{
 			widget.NewFormItem("Label", labelEntry),
 			widget.NewFormItem("Width (mm)", widthEntry),
 			widget.NewFormItem("Height (mm)", heightEntry),
 			widget.NewFormItem("Quantity", qtyEntry),
+			widget.NewFormItem("Price per Sheet", priceEntry),
 		},
 		func(ok bool) {
 			if !ok {
@@ -681,11 +698,12 @@ func (a *App) showEditStockDialog(idx int) {
 			a.project.Stocks[idx].Width = w
 			a.project.Stocks[idx].Height = h
 			a.project.Stocks[idx].Quantity = q
+			a.project.Stocks[idx].PricePerSheet, _ = strconv.ParseFloat(priceEntry.Text, 64)
 			a.refreshStockList()
 		},
 		a.window,
 	)
-	form.Resize(fyne.NewSize(400, 300))
+	form.Resize(fyne.NewSize(400, 350))
 	form.Show()
 }
 

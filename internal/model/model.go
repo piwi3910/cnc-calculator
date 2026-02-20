@@ -93,12 +93,13 @@ func NewPart(label string, w, h float64, qty int) Part {
 
 // StockSheet represents an available sheet of material to cut from.
 type StockSheet struct {
-	ID       string         `json:"id"`
-	Label    string         `json:"label"`
-	Width    float64        `json:"width"`  // mm
-	Height   float64        `json:"height"` // mm
-	Quantity int            `json:"quantity"`
-	Tabs     StockTabConfig `json:"tabs"` // Override default tab config for this sheet
+	ID            string         `json:"id"`
+	Label         string         `json:"label"`
+	Width         float64        `json:"width"`  // mm
+	Height        float64        `json:"height"` // mm
+	Quantity      int            `json:"quantity"`
+	Tabs          StockTabConfig `json:"tabs"`            // Override default tab config for this sheet
+	PricePerSheet float64        `json:"price_per_sheet"` // Cost per sheet in user's currency (0 = not set)
 }
 
 func NewStockSheet(label string, w, h float64, qty int) StockSheet {
@@ -479,6 +480,26 @@ func (or OptimizeResult) TotalEfficiency() float64 {
 		return 0
 	}
 	return (usedArea / totalArea) * 100.0
+}
+
+// TotalCost returns the total material cost across all used sheets.
+// Returns 0 if no sheets have pricing set.
+func (or OptimizeResult) TotalCost() float64 {
+	var total float64
+	for _, s := range or.Sheets {
+		total += s.Stock.PricePerSheet
+	}
+	return total
+}
+
+// HasPricing returns true if any sheet in the result has a price set.
+func (or OptimizeResult) HasPricing() bool {
+	for _, s := range or.Sheets {
+		if s.Stock.PricePerSheet > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // Project ties everything together for save/load.

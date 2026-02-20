@@ -418,10 +418,14 @@ func RenderSheetResults(result *model.OptimizeResult, settings model.CutSettings
 		}
 	}
 
-	summary := widget.NewLabel(fmt.Sprintf(
+	summaryText := fmt.Sprintf(
 		"Total: %d sheets used, %.1f%% overall efficiency",
 		len(result.Sheets), result.TotalEfficiency(),
-	))
+	)
+	if result.HasPricing() {
+		summaryText += fmt.Sprintf(" | Estimated material cost: %.2f", result.TotalCost())
+	}
+	summary := widget.NewLabel(summaryText)
 	summary.TextStyle = fyne.TextStyle{Bold: true}
 	items = append(items, summary)
 

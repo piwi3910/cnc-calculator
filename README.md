@@ -41,6 +41,7 @@ A cross-platform desktop application for optimizing rectangular cut lists and ge
 - **Undo/Redo** — Full history with Ctrl+Z / Ctrl+Y (Cmd+Z / Cmd+Shift+Z on macOS)
 - **Parts Library** — Save and reuse predefined parts organized by category
 - **Tool & Stock Inventory** — Manage cutting tools and stock sheet presets
+- **Material Pricing** — Track price per sheet in stock inventory; view total material cost in optimization results
 - **Admin Menu** — Application settings, inventory management, data backup/restore
 - **Stock Size Presets** — Quick-select dropdown with common panel sizes (Full, Half, Quarter sheet, Euro sizes)
 
