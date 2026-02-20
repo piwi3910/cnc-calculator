@@ -884,6 +884,9 @@ func (a *App) buildSettingsPanel() fyne.CanvasObject {
 	optimizeToolpathCheck := widget.NewCheck("", func(b bool) { s.OptimizeToolpath = b })
 	optimizeToolpathCheck.Checked = s.OptimizeToolpath
 
+	structuralOrderCheck := widget.NewCheck("", func(b bool) { s.StructuralOrdering = b })
+	structuralOrderCheck.Checked = s.StructuralOrdering
+
 	cncSection := widget.NewCard("CNC / GCode", "", container.NewGridWithColumns(2,
 		widget.NewLabel("Load Tool Profile"), a.buildToolProfileSelector(),
 		widget.NewLabel("GCode Profile"), a.buildProfileSelector(),
@@ -895,6 +898,7 @@ func (a *App) buildSettingsPanel() fyne.CanvasObject {
 		widget.NewLabel("Material Thickness (mm)"), floatEntry(&s.CutDepth),
 		widget.NewLabel("Pass Depth (mm)"), floatEntry(&s.PassDepth),
 		widget.NewLabel("Optimize Toolpath Order"), optimizeToolpathCheck,
+		widget.NewLabel("Structural Cut Ordering"), structuralOrderCheck,
 	))
 
 	leadInOutSection := widget.NewCard("Lead-In / Lead-Out Arcs", "Arc approach and exit for smoother cuts", container.NewGridWithColumns(2,

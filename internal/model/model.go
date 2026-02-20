@@ -387,6 +387,9 @@ type CutSettings struct {
 	OnionSkinDepth    float64 `json:"onion_skin_depth"`    // Thickness of skin to leave (mm)
 	OnionSkinCleanup  bool    `json:"onion_skin_cleanup"`  // Generate a separate cleanup pass to remove the skin
 
+	// Structural integrity cut ordering (interior cuts first, perimeter last)
+	StructuralOrdering bool `json:"structural_ordering"` // Order cuts from center outward for structural integrity
+
 	// Fixture/clamp exclusion zones
 	ClampZones []ClampZone `json:"clamp_zones,omitempty"` // Clamp/fixture zones to exclude from optimization
 

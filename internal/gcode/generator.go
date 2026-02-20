@@ -3,6 +3,7 @@ package gcode
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 
 	"github.com/piwi3910/SlabCut/internal/model"
@@ -28,7 +29,10 @@ func (g *Generator) GenerateSheet(sheet model.SheetResult, sheetIndex int) strin
 	g.writeHeader(&b, sheet, sheetIndex)
 
 	placements := sheet.Placements
-	if g.Settings.OptimizeToolpath && len(placements) > 1 {
+	if g.Settings.StructuralOrdering && len(placements) > 1 {
+		placements = g.structuralOrderPlacements(placements, sheet.Stock.Width, sheet.Stock.Height)
+		b.WriteString(g.comment("Cut ordering: structural integrity (center-out)"))
+	} else if g.Settings.OptimizeToolpath && len(placements) > 1 {
 		placements = g.orderPlacements(placements)
 		b.WriteString(g.comment("Toolpath ordering: nearest-neighbor optimization"))
 	}
@@ -96,6 +100,82 @@ func (g *Generator) orderPlacements(placements []model.Placement) []model.Placem
 	}
 
 	return ordered
+}
+
+// structuralOrderPlacements reorders placements to maintain structural integrity
+// of the stock sheet during machining. Interior parts (those furthest from all
+// sheet edges) are cut first, and parts near the edges are cut last.
+//
+// This preserves the rigidity of the surrounding material while interior cuts
+// are being made, reducing vibration, chatter, and part movement.
+//
+// The algorithm computes a "minimum edge distance" for each placement — the
+// shortest distance from the placement's bounding box to any sheet edge. Parts
+// with larger minimum edge distances are more interior and are cut first.
+// Ties are broken by distance from the sheet center (closer to center = first).
+func (g *Generator) structuralOrderPlacements(placements []model.Placement, sheetW, sheetH float64) []model.Placement {
+	n := len(placements)
+	if n <= 1 {
+		return placements
+	}
+
+	// Work on a copy
+	ordered := make([]model.Placement, n)
+	copy(ordered, placements)
+
+	sheetCX := sheetW / 2.0
+	sheetCY := sheetH / 2.0
+
+	sort.SliceStable(ordered, func(i, j int) bool {
+		di := minEdgeDistance(ordered[i], sheetW, sheetH)
+		dj := minEdgeDistance(ordered[j], sheetW, sheetH)
+
+		// Higher min-edge-distance = more interior = should be cut first (sort earlier)
+		if math.Abs(di-dj) > 0.01 {
+			return di > dj
+		}
+
+		// Tie-break: closer to center of sheet = cut first
+		ci := centerDistance(ordered[i], sheetCX, sheetCY)
+		cj := centerDistance(ordered[j], sheetCX, sheetCY)
+		return ci < cj
+	})
+
+	return ordered
+}
+
+// minEdgeDistance returns the minimum distance from a placement's bounding box
+// to any edge of the stock sheet. A larger value means the part is more interior.
+func minEdgeDistance(p model.Placement, sheetW, sheetH float64) float64 {
+	pw := p.PlacedWidth()
+	ph := p.PlacedHeight()
+
+	distLeft := p.X
+	distRight := sheetW - (p.X + pw)
+	distTop := p.Y
+	distBottom := sheetH - (p.Y + ph)
+
+	min := distLeft
+	if distRight < min {
+		min = distRight
+	}
+	if distTop < min {
+		min = distTop
+	}
+	if distBottom < min {
+		min = distBottom
+	}
+	return min
+}
+
+// centerDistance returns the Euclidean distance from a placement's center
+// to the given center point.
+func centerDistance(p model.Placement, cx, cy float64) float64 {
+	px := p.X + p.PlacedWidth()/2.0
+	py := p.Y + p.PlacedHeight()/2.0
+	dx := px - cx
+	dy := py - cy
+	return math.Sqrt(dx*dx + dy*dy)
 }
 
 // placementDistance returns the Euclidean distance between the centers of two placements.

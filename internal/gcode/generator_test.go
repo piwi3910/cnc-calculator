@@ -765,3 +765,213 @@ func TestDefaultSettings_OnionSkin(t *testing.T) {
 		t.Error("expected default OnionSkinCleanup to be false")
 	}
 }
+
+// --- Structural Cut Ordering Tests ---
+
+func TestStructuralOrder_InteriorFirst(t *testing.T) {
+	// Place 3 parts on a 1000x1000 sheet:
+	// - center part (most interior) should be cut first
+	// - edge part (least interior) should be cut last
+	settings := newTestSettings()
+	settings.StructuralOrdering = true
+	gen := New(settings)
+
+	sheet := model.SheetResult{
+		Stock: model.StockSheet{Width: 1000, Height: 1000},
+		Placements: []model.Placement{
+			{Part: model.Part{Label: "Edge", Width: 100, Height: 100}, X: 0, Y: 0},           // on corner, minEdgeDist=0
+			{Part: model.Part{Label: "Middle", Width: 100, Height: 100}, X: 200, Y: 200},      // minEdgeDist=200
+			{Part: model.Part{Label: "Center", Width: 100, Height: 100}, X: 450, Y: 450},      // minEdgeDist=450
+		},
+	}
+
+	code := gen.GenerateSheet(sheet, 1)
+
+	// Center should appear first, Edge last in the GCode
+	centerIdx := strings.Index(code, "Center")
+	middleIdx := strings.Index(code, "Middle")
+	edgeIdx := strings.Index(code, "Edge")
+
+	if centerIdx < 0 || middleIdx < 0 || edgeIdx < 0 {
+		t.Fatal("expected all three part labels to appear in GCode")
+	}
+	if centerIdx > middleIdx {
+		t.Errorf("Center (most interior) should be cut before Middle: center@%d, middle@%d", centerIdx, middleIdx)
+	}
+	if middleIdx > edgeIdx {
+		t.Errorf("Middle should be cut before Edge: middle@%d, edge@%d", middleIdx, edgeIdx)
+	}
+}
+
+func TestStructuralOrder_SinglePlacement(t *testing.T) {
+	settings := newTestSettings()
+	settings.StructuralOrdering = true
+	gen := New(settings)
+
+	sheet := model.SheetResult{
+		Stock: model.StockSheet{Width: 500, Height: 300},
+		Placements: []model.Placement{
+			{Part: model.Part{Label: "Only", Width: 100, Height: 100}, X: 50, Y: 50},
+		},
+	}
+
+	code := gen.GenerateSheet(sheet, 1)
+	if !strings.Contains(code, "Only") {
+		t.Error("expected single part label in GCode")
+	}
+}
+
+func TestStructuralOrder_Disabled(t *testing.T) {
+	// When structural ordering is disabled, order should remain unchanged
+	settings := newTestSettings()
+	settings.StructuralOrdering = false
+	settings.OptimizeToolpath = false
+	gen := New(settings)
+
+	sheet := model.SheetResult{
+		Stock: model.StockSheet{Width: 1000, Height: 1000},
+		Placements: []model.Placement{
+			{Part: model.Part{Label: "Edge", Width: 100, Height: 100}, X: 0, Y: 0},
+			{Part: model.Part{Label: "Center", Width: 100, Height: 100}, X: 450, Y: 450},
+		},
+	}
+
+	code := gen.GenerateSheet(sheet, 1)
+	edgeIdx := strings.Index(code, "Edge")
+	centerIdx := strings.Index(code, "Center")
+
+	// Edge should appear first (original order preserved)
+	if edgeIdx > centerIdx {
+		t.Error("with structural ordering disabled, original order should be preserved")
+	}
+}
+
+func TestStructuralOrder_OverridesToolpathOptimization(t *testing.T) {
+	// When both are enabled, structural ordering takes priority
+	settings := newTestSettings()
+	settings.StructuralOrdering = true
+	settings.OptimizeToolpath = true
+	gen := New(settings)
+
+	sheet := model.SheetResult{
+		Stock: model.StockSheet{Width: 1000, Height: 1000},
+		Placements: []model.Placement{
+			{Part: model.Part{Label: "Edge", Width: 100, Height: 100}, X: 0, Y: 0},
+			{Part: model.Part{Label: "Center", Width: 100, Height: 100}, X: 450, Y: 450},
+		},
+	}
+
+	code := gen.GenerateSheet(sheet, 1)
+	if !strings.Contains(code, "structural integrity") {
+		t.Error("expected structural integrity comment when structural ordering enabled")
+	}
+	if strings.Contains(code, "nearest-neighbor") {
+		t.Error("structural ordering should override nearest-neighbor when both enabled")
+	}
+}
+
+func TestStructuralOrder_TiebreakByCenter(t *testing.T) {
+	// Two parts with same min-edge-distance: one closer to center should be first
+	settings := newTestSettings()
+	settings.StructuralOrdering = true
+	gen := New(settings)
+
+	// Sheet 1000x1000, center at (500,500)
+	// PartA at (100,100): minEdgeDist = 100, center distance ~= 565
+	// PartB at (400,100): minEdgeDist = 100, center distance ~= 412
+	sheet := model.SheetResult{
+		Stock: model.StockSheet{Width: 1000, Height: 1000},
+		Placements: []model.Placement{
+			{Part: model.Part{Label: "FarCenter", Width: 100, Height: 100}, X: 100, Y: 100},
+			{Part: model.Part{Label: "NearCenter", Width: 100, Height: 100}, X: 400, Y: 100},
+		},
+	}
+
+	code := gen.GenerateSheet(sheet, 1)
+	nearIdx := strings.Index(code, "NearCenter")
+	farIdx := strings.Index(code, "FarCenter")
+
+	if nearIdx < 0 || farIdx < 0 {
+		t.Fatal("expected both part labels in GCode")
+	}
+	if nearIdx > farIdx {
+		t.Error("NearCenter (closer to sheet center) should be cut before FarCenter on tiebreak")
+	}
+}
+
+func TestMinEdgeDistance(t *testing.T) {
+	tests := []struct {
+		name     string
+		p        model.Placement
+		sheetW   float64
+		sheetH   float64
+		expected float64
+	}{
+		{
+			name:     "corner part",
+			p:        model.Placement{Part: model.Part{Width: 100, Height: 100}, X: 0, Y: 0},
+			sheetW:   1000,
+			sheetH:   1000,
+			expected: 0,
+		},
+		{
+			name:     "centered part",
+			p:        model.Placement{Part: model.Part{Width: 100, Height: 100}, X: 450, Y: 450},
+			sheetW:   1000,
+			sheetH:   1000,
+			expected: 450,
+		},
+		{
+			name:     "edge part",
+			p:        model.Placement{Part: model.Part{Width: 100, Height: 100}, X: 50, Y: 400},
+			sheetW:   1000,
+			sheetH:   1000,
+			expected: 50, // closest to left edge
+		},
+		{
+			name:     "rotated part",
+			p:        model.Placement{Part: model.Part{Width: 200, Height: 100}, X: 100, Y: 100, Rotated: true},
+			sheetW:   1000,
+			sheetH:   1000,
+			expected: 100, // uses PlacedWidth=100, PlacedHeight=200
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := minEdgeDistance(tc.p, tc.sheetW, tc.sheetH)
+			if math.Abs(got-tc.expected) > 0.01 {
+				t.Errorf("minEdgeDistance = %.2f, want %.2f", got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestCenterDistance(t *testing.T) {
+	p := model.Placement{Part: model.Part{Width: 100, Height: 100}, X: 0, Y: 0}
+	// Center of part is (50, 50), sheet center (500, 500)
+	d := centerDistance(p, 500, 500)
+	expected := math.Sqrt(450*450 + 450*450)
+	if math.Abs(d-expected) > 0.01 {
+		t.Errorf("centerDistance = %.2f, want %.2f", d, expected)
+	}
+}
+
+func TestStructuralOrder_CommentInGCode(t *testing.T) {
+	settings := newTestSettings()
+	settings.StructuralOrdering = true
+	gen := New(settings)
+
+	sheet := model.SheetResult{
+		Stock: model.StockSheet{Width: 500, Height: 300},
+		Placements: []model.Placement{
+			{Part: model.Part{Label: "A", Width: 50, Height: 50}, X: 10, Y: 10},
+			{Part: model.Part{Label: "B", Width: 50, Height: 50}, X: 200, Y: 100},
+		},
+	}
+
+	code := gen.GenerateSheet(sheet, 1)
+	if !strings.Contains(code, "structural integrity") {
+		t.Error("expected structural integrity comment in GCode output")
+	}
+}
