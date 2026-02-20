@@ -849,28 +849,29 @@ func (a *App) previewGCode() {
 	// Legend header
 	legendLabel := widget.NewLabelWithStyle("Legend:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	legendText := widget.NewRichTextFromMarkdown(
-		"**Red dashed** = Rapid moves  |  **Blue solid** = Cutting moves  |  **Green dot** = Plunge  |  **Yellow dot** = Retract  |  **Orange** = Tab positions")
+		"**Green** = Completed cuts  |  **Dim blue** = Remaining cuts  |  **Red circle** = Tool position  |  **Orange** = Tab positions")
 	previewItems = append(previewItems, container.NewHBox(legendLabel, legendText), widget.NewSeparator())
 
 	for i, sheet := range a.project.Result.Sheets {
 		gcodeStr := gen.GenerateSheet(sheet, i+1)
 
 		header := widget.NewLabelWithStyle(
-			fmt.Sprintf("Sheet %d: %s (%.0f x %.0f) — Toolpath Preview",
+			fmt.Sprintf("Sheet %d: %s (%.0f x %.0f) — Toolpath Simulation",
 				i+1, sheet.Stock.Label, sheet.Stock.Width, sheet.Stock.Height),
 			fyne.TextAlignLeading, fyne.TextStyle{Bold: true},
 		)
 
-		preview := widgets.RenderGCodePreview(sheet, a.project.Settings, gcodeStr)
+		// Use simulation view with slider, play/pause, step, and speed controls
+		simView := widgets.RenderGCodeSimulation(sheet, a.project.Settings, gcodeStr)
 
-		previewItems = append(previewItems, header, preview, widget.NewSeparator())
+		previewItems = append(previewItems, header, simView, widget.NewSeparator())
 	}
 
 	content := container.NewVScroll(container.NewVBox(previewItems...))
-	content.SetMinSize(fyne.NewSize(750, 500))
+	content.SetMinSize(fyne.NewSize(750, 550))
 
-	d := dialog.NewCustom("GCode Toolpath Preview", "Close", content, a.window)
-	d.Resize(fyne.NewSize(800, 600))
+	d := dialog.NewCustom("GCode Toolpath Simulation", "Close", content, a.window)
+	d.Resize(fyne.NewSize(850, 650))
 	d.Show()
 }
 
