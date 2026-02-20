@@ -259,10 +259,10 @@ func GetProfileNames() []string {
 
 func DefaultSettings() CutSettings {
 	return CutSettings{
-		Algorithm:        AlgorithmGuillotine,
-		KerfWidth:        3.2,
-		EdgeTrim:         10.0,
-		GuillotineOnly:   false,
+		Algorithm:       AlgorithmGuillotine,
+		KerfWidth:       3.2,
+		EdgeTrim:        10.0,
+		GuillotineOnly:  false,
 		ToolDiameter:    6.0,
 		FeedRate:        1500.0,
 		PlungeRate:      500.0,
