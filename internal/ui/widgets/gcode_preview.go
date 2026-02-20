@@ -87,6 +87,46 @@ func (gp *GCodePreview) MoveCount() int {
 	return len(gp.moves)
 }
 
+// MoveInfo holds display information about a single GCode move.
+type MoveInfo struct {
+	Index    int
+	Type     string
+	ToX      float64
+	ToY      float64
+	ToZ      float64
+	FeedRate float64
+}
+
+// GetMoveInfo returns information about the move at the given index.
+// Returns nil if the index is out of range.
+func (gp *GCodePreview) GetMoveInfo(idx int) *MoveInfo {
+	if idx < 0 || idx >= len(gp.moves) {
+		return nil
+	}
+	m := gp.moves[idx]
+	var typeName string
+	switch m.Type {
+	case gcode.MoveRapid:
+		typeName = "Rapid"
+	case gcode.MoveFeed:
+		typeName = "Feed"
+	case gcode.MovePlunge:
+		typeName = "Plunge"
+	case gcode.MoveRetract:
+		typeName = "Retract"
+	default:
+		typeName = "Unknown"
+	}
+	return &MoveInfo{
+		Index:    idx,
+		Type:     typeName,
+		ToX:      m.ToX,
+		ToY:      m.ToY,
+		ToZ:      m.ToZ,
+		FeedRate: m.FeedRate,
+	}
+}
+
 // CreateRenderer implements fyne.Widget.
 func (gp *GCodePreview) CreateRenderer() fyne.WidgetRenderer {
 	return newGCodePreviewRenderer(gp)
@@ -461,8 +501,8 @@ var simulationSpeeds = []struct {
 
 // RenderGCodeSimulation creates a GCode preview panel with full simulation controls:
 // a progress slider, play/pause button, step forward/backward, speed control,
-// and move counter. Completed toolpath is shown in green, remaining in dim colors,
-// with a red crosshair showing current tool position.
+// loop toggle, coordinate display, and move counter. Completed toolpath is shown
+// in green, remaining in dim colors, with a red crosshair showing current tool position.
 func RenderGCodeSimulation(sheet model.SheetResult, settings model.CutSettings, gcodeStr string) fyne.CanvasObject {
 	moves := gcode.ParseGCode(gcodeStr)
 	if len(moves) == 0 {
@@ -486,12 +526,17 @@ func RenderGCodeSimulation(sheet model.SheetResult, settings model.CutSettings, 
 	// State for playback
 	var playMu sync.Mutex
 	playing := false
+	loopEnabled := false
 	var stopChan chan struct{}
 	speedIdx := 2 // default 1x
 
 	// UI elements
 	moveLabel := widget.NewLabel(fmt.Sprintf("Move: %d / %d", totalMoves, totalMoves))
 	moveLabel.TextStyle = fyne.TextStyle{Monospace: true}
+
+	// Coordinate display showing current tool position and move info
+	coordLabel := widget.NewLabel("X: --  Y: --  Z: --  F: --  Type: --")
+	coordLabel.TextStyle = fyne.TextStyle{Monospace: true}
 
 	slider := widget.NewSlider(0, float64(totalMoves))
 	slider.Value = float64(totalMoves)
@@ -516,6 +561,18 @@ func RenderGCodeSimulation(sheet model.SheetResult, settings model.CutSettings, 
 
 	var playBtn *widget.Button
 
+	updateCoordDisplay := func(pos int) {
+		if pos <= 0 || pos > totalMoves {
+			coordLabel.SetText("X: --  Y: --  Z: --  F: --  Type: --")
+			return
+		}
+		info := preview.GetMoveInfo(pos - 1)
+		if info != nil {
+			coordLabel.SetText(fmt.Sprintf("X: %.2f  Y: %.2f  Z: %.2f  F: %.0f  Type: %s",
+				info.ToX, info.ToY, info.ToZ, info.FeedRate, info.Type))
+		}
+	}
+
 	updateDisplay := func(pos int) {
 		if pos >= totalMoves {
 			preview.SetVisibleMoves(-1) // show all
@@ -524,6 +581,7 @@ func RenderGCodeSimulation(sheet model.SheetResult, settings model.CutSettings, 
 			preview.SetVisibleMoves(pos)
 			moveLabel.SetText(fmt.Sprintf("Move: %d / %d", pos, totalMoves))
 		}
+		updateCoordDisplay(pos)
 	}
 
 	stopPlayback := func() {
@@ -561,30 +619,47 @@ func RenderGCodeSimulation(sheet model.SheetResult, settings model.CutSettings, 
 				pos = 0
 			}
 
-			for pos < totalMoves {
-				select {
-				case <-ch:
-					return
-				default:
+			for {
+				for pos < totalMoves {
+					select {
+					case <-ch:
+						return
+					default:
+					}
+
+					pos++
+					slider.SetValue(float64(pos))
+					updateDisplay(pos)
+
+					playMu.Lock()
+					spd := simulationSpeeds[speedIdx].Multiplier
+					playMu.Unlock()
+
+					// Base interval: 50ms at 1x speed
+					interval := time.Duration(float64(50*time.Millisecond) / spd)
+					if interval < time.Millisecond {
+						interval = time.Millisecond
+					}
+					time.Sleep(interval)
 				}
 
-				pos++
-				slider.SetValue(float64(pos))
-				updateDisplay(pos)
-
+				// Check if looping
 				playMu.Lock()
-				spd := simulationSpeeds[speedIdx].Multiplier
+				shouldLoop := loopEnabled
 				playMu.Unlock()
 
-				// Base interval: 50ms at 1x speed
-				interval := time.Duration(float64(50*time.Millisecond) / spd)
-				if interval < time.Millisecond {
-					interval = time.Millisecond
+				if !shouldLoop {
+					break
 				}
-				time.Sleep(interval)
+
+				// Reset to beginning for next loop iteration
+				pos = 0
+				slider.SetValue(0)
+				updateDisplay(0)
+				time.Sleep(500 * time.Millisecond) // Brief pause between loops
 			}
 
-			// Reached end
+			// Reached end (no loop)
 			playMu.Lock()
 			playing = false
 			playMu.Unlock()
@@ -643,6 +718,13 @@ func RenderGCodeSimulation(sheet model.SheetResult, settings model.CutSettings, 
 		updateDisplay(totalMoves)
 	})
 
+	// Loop toggle
+	loopCheck := widget.NewCheck("Loop", func(checked bool) {
+		playMu.Lock()
+		loopEnabled = checked
+		playMu.Unlock()
+	})
+
 	// Layout: controls below the preview
 	controls := container.NewVBox(
 		slider,
@@ -654,10 +736,12 @@ func RenderGCodeSimulation(sheet model.SheetResult, settings model.CutSettings, 
 			widget.NewSeparator(),
 			widget.NewLabel("Speed:"),
 			speedSelect,
+			loopCheck,
 			layout.NewSpacer(),
 			moveLabel,
 			resetBtn,
 		),
+		coordLabel,
 	)
 
 	return container.NewBorder(nil, controls, nil, nil, preview)

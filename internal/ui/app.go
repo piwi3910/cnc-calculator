@@ -875,7 +875,7 @@ func (a *App) refreshResults() {
 	}
 
 	// Action buttons toolbar
-	previewBtn := widget.NewButtonWithIcon("Preview GCode", theme.VisibilityIcon(), func() {
+	simulateBtn := widget.NewButtonWithIcon("Simulate GCode", theme.MediaPlayIcon(), func() {
 		a.previewGCode()
 	})
 	exportBtn := widget.NewButtonWithIcon("Export GCode", theme.DocumentSaveIcon(), func() {
@@ -884,16 +884,43 @@ func (a *App) refreshResults() {
 	saveOffcutsBtn := widget.NewButtonWithIcon("Save Offcuts to Inventory", theme.ContentAddIcon(), func() {
 		a.saveOffcutsToInventory()
 	})
-	toolbar := container.NewHBox(layout.NewSpacer(), saveOffcutsBtn, previewBtn, exportBtn)
+	toolbar := container.NewHBox(layout.NewSpacer(), saveOffcutsBtn, simulateBtn, exportBtn)
 
-	// Sheet results visualization (includes SheetCanvas graphics and summary)
+	// Build both cut layout and inline simulation views
 	sheetResults := widgets.RenderSheetResults(a.project.Result, a.project.Settings)
 
-	// Use Border layout: toolbar pinned at top, scrollable results fill remaining space
+	// Inline simulation viewport for the first sheet (most common use case)
+	gen := gcode.New(a.project.Settings)
+	var inlineSimItems []fyne.CanvasObject
+
+	legendLabel := widget.NewLabelWithStyle("Simulation Legend:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+	legendText := widget.NewLabel("Green = Completed  |  Dim = Remaining  |  Red circle = Tool position")
+	inlineSimItems = append(inlineSimItems, container.NewHBox(legendLabel, legendText), widget.NewSeparator())
+
+	for i, sheet := range a.project.Result.Sheets {
+		gcodeStr := gen.GenerateSheet(sheet, i+1)
+		header := widget.NewLabelWithStyle(
+			fmt.Sprintf("Sheet %d: %s (%.0f x %.0f)",
+				i+1, sheet.Stock.Label, sheet.Stock.Width, sheet.Stock.Height),
+			fyne.TextAlignLeading, fyne.TextStyle{Bold: true},
+		)
+		simView := widgets.RenderGCodeSimulation(sheet, a.project.Settings, gcodeStr)
+		inlineSimItems = append(inlineSimItems, header, simView, widget.NewSeparator())
+	}
+	inlineSim := container.NewVScroll(container.NewVBox(inlineSimItems...))
+
+	// Create tabs for Cut Layout vs Simulation viewport
+	viewTabs := container.NewAppTabs(
+		container.NewTabItem("Cut Layout", sheetResults),
+		container.NewTabItem("Simulation", inlineSim),
+	)
+	viewTabs.SetTabLocation(container.TabLocationBottom)
+
+	// Use Border layout: toolbar pinned at top, tabbed views fill remaining space
 	a.resultContainer.Add(container.NewBorder(
 		container.NewVBox(toolbar, widget.NewSeparator()),
 		nil, nil, nil,
-		sheetResults,
+		viewTabs,
 	))
 	a.resultContainer.Refresh()
 }
