@@ -454,8 +454,9 @@ func NewPart(label string, w, h float64, qty int) Part {
 type StockSheet struct {
 	ID            string         `json:"id"`
 	Label         string         `json:"label"`
-	Width         float64        `json:"width"`  // mm
-	Height        float64        `json:"height"` // mm
+	Width         float64        `json:"width"`     // mm
+	Height        float64        `json:"height"`    // mm
+	Thickness     float64        `json:"thickness"` // mm (default 18)
 	Quantity      int            `json:"quantity"`
 	Grain         Grain          `json:"grain"`              // Sheet grain direction (None, Horizontal, Vertical)
 	Material      string         `json:"material,omitempty"` // Material type (e.g., "Plywood", "MDF"); empty means unspecified
@@ -465,13 +466,14 @@ type StockSheet struct {
 
 func NewStockSheet(label string, w, h float64, qty int) StockSheet {
 	return StockSheet{
-		ID:       uuid.New().String()[:8],
-		Label:    label,
-		Width:    w,
-		Height:   h,
-		Quantity: qty,
-		Grain:    GrainNone,
-		Tabs:     StockTabConfig{Enabled: false}, // Use defaults by default
+		ID:        uuid.New().String()[:8],
+		Label:     label,
+		Width:     w,
+		Height:    h,
+		Thickness: 18, // Default 18mm
+		Quantity:  qty,
+		Grain:     GrainNone,
+		Tabs:      StockTabConfig{Enabled: false}, // Use defaults by default
 	}
 }
 

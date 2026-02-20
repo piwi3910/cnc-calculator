@@ -710,7 +710,7 @@ func (a *App) buildStockPanel() fyne.CanvasObject {
 	a.stockContainer = container.NewVBox()
 	a.refreshStockList()
 
-	// Quick-add row: Label, Width, Height, Qty, Grain, + button
+	// Quick-add row: Label, Width, Height, Thickness, Qty, Grain, + button
 	qaLabel := widget.NewEntry()
 	qaLabel.SetPlaceHolder("Name")
 	qaLabel.SetText("Plywood")
@@ -718,6 +718,9 @@ func (a *App) buildStockPanel() fyne.CanvasObject {
 	qaWidth.SetPlaceHolder("Width")
 	qaHeight := widget.NewEntry()
 	qaHeight.SetPlaceHolder("Height")
+	qaThickness := widget.NewEntry()
+	qaThickness.SetPlaceHolder("Thickness")
+	qaThickness.SetText("18")
 	qaQty := widget.NewEntry()
 	qaQty.SetPlaceHolder("Qty")
 	qaQty.SetText("1")
@@ -735,6 +738,10 @@ func (a *App) buildStockPanel() fyne.CanvasObject {
 			dialog.ShowError(fmt.Errorf("width and height must be positive numbers"), a.window)
 			return
 		}
+		th := parseFloat(qaThickness.Text)
+		if th <= 0 {
+			th = 18
+		}
 		q := parseInt(qaQty.Text)
 		if q <= 0 {
 			q = 1
@@ -742,17 +749,19 @@ func (a *App) buildStockPanel() fyne.CanvasObject {
 		grain := parseGrain(qaGrain.Selected)
 		a.saveState("Quick Add Stock")
 		a.project.Stocks = append(a.project.Stocks, model.StockSheet{
-			Label:    label,
-			Width:    w,
-			Height:   h,
-			Quantity: q,
-			Grain:    grain,
+			Label:     label,
+			Width:     w,
+			Height:    h,
+			Thickness: th,
+			Quantity:  q,
+			Grain:     grain,
 		})
 		a.refreshStockList()
 		// Reset for next entry
 		qaLabel.SetText("Plywood")
 		qaWidth.SetText("")
 		qaHeight.SetText("")
+		qaThickness.SetText("18")
 		qaQty.SetText("1")
 		qaGrain.SetSelected("None")
 		a.window.Canvas().Focus(qaWidth)
@@ -761,11 +770,12 @@ func (a *App) buildStockPanel() fyne.CanvasObject {
 	qaLabel.OnSubmitted = func(_ string) { doQuickAdd() }
 	qaWidth.OnSubmitted = func(_ string) { doQuickAdd() }
 	qaHeight.OnSubmitted = func(_ string) { doQuickAdd() }
+	qaThickness.OnSubmitted = func(_ string) { doQuickAdd() }
 	qaQty.OnSubmitted = func(_ string) { doQuickAdd() }
 
 	qaAddBtn := newEnterButton(theme.ContentAddIcon(), doQuickAdd)
 
-	quickAddRow := container.NewGridWithColumns(6, qaLabel, qaWidth, qaHeight, qaQty, qaGrain, qaAddBtn)
+	quickAddRow := container.NewGridWithColumns(7, qaLabel, qaWidth, qaHeight, qaThickness, qaQty, qaGrain, qaAddBtn)
 
 	// Dropdown-style add button for detailed dialog and inventory
 	addMenuBtn := widget.NewButton("Add Stock...", nil)
@@ -806,10 +816,11 @@ func (a *App) refreshStockList() {
 		return
 	}
 
-	header := container.NewGridWithColumns(9,
+	header := container.NewGridWithColumns(10,
 		widget.NewLabelWithStyle("Label", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewLabelWithStyle("Width (mm)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewLabelWithStyle("Height (mm)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabelWithStyle("Thick (mm)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewLabelWithStyle("Qty", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewLabelWithStyle("Grain", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 		widget.NewLabelWithStyle("Material", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
@@ -831,10 +842,15 @@ func (a *App) refreshStockList() {
 		if s.Material != "" {
 			stockMatLabel = s.Material
 		}
-		row := container.NewGridWithColumns(9,
+		thicknessVal := s.Thickness
+		if thicknessVal <= 0 {
+			thicknessVal = 18
+		}
+		row := container.NewGridWithColumns(10,
 			widget.NewLabel(s.Label),
 			widget.NewLabel(fmt.Sprintf("%.1f", s.Width)),
 			widget.NewLabel(fmt.Sprintf("%.1f", s.Height)),
+			widget.NewLabel(fmt.Sprintf("%.1f", thicknessVal)),
 			widget.NewLabel(fmt.Sprintf("%d", s.Quantity)),
 			widget.NewLabel(s.Grain.String()),
 			widget.NewLabel(stockMatLabel),
@@ -902,6 +918,9 @@ func (a *App) showAddStockDialog() {
 	})
 	presetSelect.PlaceHolder = "Select a preset size..."
 
+	thicknessEntry := widget.NewEntry()
+	thicknessEntry.SetText("18")
+
 	grainSelect := widget.NewSelect([]string{"None", "Horizontal", "Vertical"}, nil)
 	grainSelect.SetSelected("None")
 
@@ -918,6 +937,7 @@ func (a *App) showAddStockDialog() {
 			widget.NewFormItem("Label", labelEntry),
 			widget.NewFormItem("Width (mm)", widthEntry),
 			widget.NewFormItem("Height (mm)", heightEntry),
+			widget.NewFormItem("Thickness (mm)", thicknessEntry),
 			widget.NewFormItem("Quantity", qtyEntry),
 			widget.NewFormItem("Grain Direction", grainSelect),
 			widget.NewFormItem("Material", stockMaterialEntry),
@@ -934,8 +954,13 @@ func (a *App) showAddStockDialog() {
 				dialog.ShowError(fmt.Errorf("width, height, and quantity must be > 0"), a.window)
 				return
 			}
+			th, _ := strconv.ParseFloat(thicknessEntry.Text, 64)
+			if th <= 0 {
+				th = 18
+			}
 			a.saveState("Add Stock Sheet")
 			sheet := model.NewStockSheet(labelEntry.Text, w, h, q)
+			sheet.Thickness = th
 			switch grainSelect.Selected {
 			case "Horizontal":
 				sheet.Grain = model.GrainHorizontal
@@ -949,7 +974,7 @@ func (a *App) showAddStockDialog() {
 		},
 		a.window,
 	)
-	form.Resize(fyne.NewSize(450, 500))
+	form.Resize(fyne.NewSize(450, 550))
 	form.Show()
 }
 
@@ -968,6 +993,13 @@ func (a *App) showEditStockDialog(idx int) {
 	qtyEntry := widget.NewEntry()
 	qtyEntry.SetText(fmt.Sprintf("%d", s.Quantity))
 
+	thicknessVal := s.Thickness
+	if thicknessVal <= 0 {
+		thicknessVal = 18
+	}
+	editThicknessEntry := widget.NewEntry()
+	editThicknessEntry.SetText(fmt.Sprintf("%.1f", thicknessVal))
+
 	grainSelect := widget.NewSelect([]string{"None", "Horizontal", "Vertical"}, nil)
 	grainSelect.SetSelected(s.Grain.String())
 
@@ -983,6 +1015,7 @@ func (a *App) showEditStockDialog(idx int) {
 			widget.NewFormItem("Label", labelEntry),
 			widget.NewFormItem("Width (mm)", widthEntry),
 			widget.NewFormItem("Height (mm)", heightEntry),
+			widget.NewFormItem("Thickness (mm)", editThicknessEntry),
 			widget.NewFormItem("Quantity", qtyEntry),
 			widget.NewFormItem("Grain Direction", grainSelect),
 			widget.NewFormItem("Material", editStockMaterialEntry),
@@ -999,10 +1032,15 @@ func (a *App) showEditStockDialog(idx int) {
 				dialog.ShowError(fmt.Errorf("width, height, and quantity must be > 0"), a.window)
 				return
 			}
+			th, _ := strconv.ParseFloat(editThicknessEntry.Text, 64)
+			if th <= 0 {
+				th = 18
+			}
 			a.saveState("Edit Stock Sheet")
 			a.project.Stocks[idx].Label = labelEntry.Text
 			a.project.Stocks[idx].Width = w
 			a.project.Stocks[idx].Height = h
+			a.project.Stocks[idx].Thickness = th
 			a.project.Stocks[idx].Quantity = q
 			switch grainSelect.Selected {
 			case "Horizontal":
@@ -1018,7 +1056,7 @@ func (a *App) showEditStockDialog(idx int) {
 		},
 		a.window,
 	)
-	form.Resize(fyne.NewSize(400, 400))
+	form.Resize(fyne.NewSize(450, 500))
 	form.Show()
 }
 
