@@ -649,3 +649,119 @@ func TestCornerOvercutFromString(t *testing.T) {
 		}
 	}
 }
+
+// ─── Onion Skinning Tests ───────────────────────────────────
+
+func TestOnionSkin_Disabled(t *testing.T) {
+	settings := newTestSettings()
+	settings.OnionSkinEnabled = false
+	gen := New(settings)
+	code := gen.GenerateSheet(newTestSheet(), 1)
+
+	if strings.Contains(code, "Onion skin") {
+		t.Error("expected no onion skin comments when disabled")
+	}
+}
+
+func TestOnionSkin_Enabled(t *testing.T) {
+	settings := newTestSettings()
+	settings.OnionSkinEnabled = true
+	settings.OnionSkinDepth = 0.2
+	settings.CutDepth = 6.0
+	settings.PassDepth = 6.0 // 1 pass
+	gen := New(settings)
+	code := gen.GenerateSheet(newTestSheet(), 1)
+
+	if !strings.Contains(code, "Onion skin: leaving 0.20mm skin") {
+		t.Error("expected onion skin comment when enabled")
+	}
+
+	// The final pass depth should be 6.0 - 0.2 = 5.8
+	if !strings.Contains(code, "depth=5.80mm") {
+		t.Errorf("expected depth of 5.80mm with onion skin, got:\n%s", code)
+	}
+}
+
+func TestOnionSkin_MultiplePassesOnlyAffectsFinal(t *testing.T) {
+	settings := newTestSettings()
+	settings.OnionSkinEnabled = true
+	settings.OnionSkinDepth = 0.2
+	settings.CutDepth = 12.0
+	settings.PassDepth = 6.0 // 2 passes
+	gen := New(settings)
+	code := gen.GenerateSheet(newTestSheet(), 1)
+
+	// First pass should be at full 6.0mm depth
+	if !strings.Contains(code, "depth=6.00mm") {
+		t.Error("expected first pass at 6.00mm depth")
+	}
+
+	// Second (final) pass should be at 12.0 - 0.2 = 11.80mm
+	if !strings.Contains(code, "depth=11.80mm") {
+		t.Errorf("expected final pass at 11.80mm with onion skin, got:\n%s", code)
+	}
+
+	// Should have exactly one onion skin comment
+	skinCount := strings.Count(code, "Onion skin: leaving")
+	if skinCount != 1 {
+		t.Errorf("expected 1 onion skin comment, got %d", skinCount)
+	}
+}
+
+func TestOnionSkin_WithCleanupPass(t *testing.T) {
+	settings := newTestSettings()
+	settings.OnionSkinEnabled = true
+	settings.OnionSkinDepth = 0.2
+	settings.OnionSkinCleanup = true
+	settings.CutDepth = 6.0
+	settings.PassDepth = 6.0
+	gen := New(settings)
+	code := gen.GenerateSheet(newTestSheet(), 1)
+
+	if !strings.Contains(code, "Onion skin cleanup pass") {
+		t.Error("expected cleanup pass comment when OnionSkinCleanup is true")
+	}
+
+	// Cleanup should be at full depth
+	if !strings.Contains(code, "Cleanup depth=6.00mm") {
+		t.Errorf("expected cleanup at full depth 6.00mm, got:\n%s", code)
+	}
+}
+
+func TestOnionSkin_NoCleanupWhenDisabled(t *testing.T) {
+	settings := newTestSettings()
+	settings.OnionSkinEnabled = true
+	settings.OnionSkinDepth = 0.2
+	settings.OnionSkinCleanup = false
+	gen := New(settings)
+	code := gen.GenerateSheet(newTestSheet(), 1)
+
+	if strings.Contains(code, "Onion skin cleanup pass") {
+		t.Error("expected no cleanup pass when OnionSkinCleanup is false")
+	}
+}
+
+func TestOnionSkin_ZeroDepthIgnored(t *testing.T) {
+	settings := newTestSettings()
+	settings.OnionSkinEnabled = true
+	settings.OnionSkinDepth = 0.0 // Zero depth = effectively disabled
+	gen := New(settings)
+	code := gen.GenerateSheet(newTestSheet(), 1)
+
+	if strings.Contains(code, "Onion skin:") {
+		t.Error("expected no onion skin when depth is 0")
+	}
+}
+
+func TestDefaultSettings_OnionSkin(t *testing.T) {
+	s := model.DefaultSettings()
+	if s.OnionSkinEnabled {
+		t.Error("expected default OnionSkinEnabled to be false")
+	}
+	if s.OnionSkinDepth != 0.2 {
+		t.Errorf("expected default OnionSkinDepth to be 0.2, got %f", s.OnionSkinDepth)
+	}
+	if s.OnionSkinCleanup {
+		t.Error("expected default OnionSkinCleanup to be false")
+	}
+}

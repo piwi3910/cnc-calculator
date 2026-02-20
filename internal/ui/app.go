@@ -828,6 +828,17 @@ func (a *App) buildSettingsPanel() fyne.CanvasObject {
 		widget.NewLabel("Corner Type"), cornerOvercutSelect,
 	))
 
+	onionSkinCheck := widget.NewCheck("", func(b bool) { s.OnionSkinEnabled = b })
+	onionSkinCheck.Checked = s.OnionSkinEnabled
+	onionCleanupCheck := widget.NewCheck("", func(b bool) { s.OnionSkinCleanup = b })
+	onionCleanupCheck.Checked = s.OnionSkinCleanup
+
+	onionSkinSection := widget.NewCard("Onion Skinning", "Leave thin layer on final pass to prevent part movement", container.NewGridWithColumns(2,
+		widget.NewLabel("Enable Onion Skin"), onionSkinCheck,
+		widget.NewLabel("Skin Thickness (mm)"), floatEntry(&s.OnionSkinDepth),
+		widget.NewLabel("Generate Cleanup Pass"), onionCleanupCheck,
+	))
+
 	// Stock sheet holding tabs (for securing sheet to CNC bed)
 	stockTabEnabled := widget.NewCheck("", func(b bool) { s.StockTabs.Enabled = b })
 	stockTabEnabled.Checked = s.StockTabs.Enabled
@@ -852,6 +863,7 @@ func (a *App) buildSettingsPanel() fyne.CanvasObject {
 		plungeSection,
 		leadInOutSection,
 		cornerSection,
+		onionSkinSection,
 		stockTabSection,
 	))
 }

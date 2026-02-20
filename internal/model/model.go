@@ -267,6 +267,11 @@ type CutSettings struct {
 
 	// Corner overcuts for interior corners
 	CornerOvercut CornerOvercut `json:"corner_overcut"` // Corner relief type: none, dogbone, or tbone
+
+	// Onion skinning (leave thin layer on final pass to prevent part movement)
+	OnionSkinEnabled  bool    `json:"onion_skin_enabled"`  // Enable onion skin on final pass
+	OnionSkinDepth    float64 `json:"onion_skin_depth"`    // Thickness of skin to leave (mm)
+	OnionSkinCleanup  bool    `json:"onion_skin_cleanup"`  // Generate a separate cleanup pass to remove the skin
 }
 
 // StockTabConfig defines holding tabs for the stock sheet edges.
@@ -522,7 +527,10 @@ func DefaultSettings() CutSettings {
 		RampAngle:       3.0,          // 3 degree ramp angle
 		HelixDiameter:   5.0,          // 5mm helix diameter
 		HelixRevPercent: 50.0,             // 50% of pass depth per revolution
-		CornerOvercut:   CornerOvercutNone, // No corner overcuts by default
+		CornerOvercut:    CornerOvercutNone, // No corner overcuts by default
+		OnionSkinEnabled: false,             // Onion skinning disabled by default
+		OnionSkinDepth:   0.2,               // 0.2mm thin skin
+		OnionSkinCleanup: false,             // No cleanup pass by default
 	}
 }
 

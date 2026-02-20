@@ -338,14 +338,21 @@ func (g *Generator) writeOutlinePart(b *strings.Builder, p model.Placement, part
 		if depth > g.Settings.CutDepth {
 			depth = g.Settings.CutDepth
 		}
+		isFinalPass := pass == numPasses
 
-		b.WriteString(g.comment(fmt.Sprintf("Pass %d/%d, depth=%.2fmm", pass, numPasses, depth)))
+		// Apply onion skin on final pass
+		effectiveDepth, skinApplied := g.applyOnionSkin(depth, isFinalPass)
+		if skinApplied {
+			b.WriteString(g.comment(fmt.Sprintf("Onion skin: leaving %.2fmm skin", g.Settings.OnionSkinDepth)))
+		}
+
+		b.WriteString(g.comment(fmt.Sprintf("Pass %d/%d, depth=%.2fmm", pass, numPasses, effectiveDepth)))
 
 		// Rapid to first point
 		b.WriteString(fmt.Sprintf("%s X%s Y%s\n", g.profile.RapidMove,
 			g.format(translated[0].X), g.format(translated[0].Y)))
 		// Plunge using configured strategy
-		g.writePlunge(b, translated[0].X, translated[0].Y, depth)
+		g.writePlunge(b, translated[0].X, translated[0].Y, effectiveDepth)
 
 		// Follow outline
 		for i := 1; i < len(translated); i++ {
@@ -359,6 +366,28 @@ func (g *Generator) writeOutlinePart(b *strings.Builder, p model.Placement, part
 			g.format(g.Settings.FeedRate)))
 
 		// Retract
+		b.WriteString(fmt.Sprintf("%s Z%s\n", g.profile.RapidMove, g.format(g.Settings.SafeZ)))
+	}
+
+	// Onion skin cleanup pass for outline parts
+	if g.onionSkinActive() && g.Settings.OnionSkinCleanup {
+		fullDepth := g.Settings.CutDepth
+		b.WriteString(g.comment("Onion skin cleanup pass"))
+		b.WriteString(g.comment(fmt.Sprintf("Cleanup depth=%.2fmm (removing %.2fmm skin)",
+			fullDepth, g.Settings.OnionSkinDepth)))
+
+		b.WriteString(fmt.Sprintf("%s X%s Y%s\n", g.profile.RapidMove,
+			g.format(translated[0].X), g.format(translated[0].Y)))
+		g.writePlunge(b, translated[0].X, translated[0].Y, fullDepth)
+
+		for i := 1; i < len(translated); i++ {
+			b.WriteString(fmt.Sprintf("%s X%s Y%s F%s\n", g.profile.FeedMove,
+				g.format(translated[i].X), g.format(translated[i].Y),
+				g.format(g.Settings.FeedRate)))
+		}
+		b.WriteString(fmt.Sprintf("%s X%s Y%s F%s\n", g.profile.FeedMove,
+			g.format(translated[0].X), g.format(translated[0].Y),
+			g.format(g.Settings.FeedRate)))
 		b.WriteString(fmt.Sprintf("%s Z%s\n", g.profile.RapidMove, g.format(g.Settings.SafeZ)))
 	}
 
@@ -407,6 +436,24 @@ func (g *Generator) offsetOutline(outline model.Outline, dist float64) model.Out
 	return result
 }
 
+// onionSkinActive returns true if onion skinning is enabled and the skin depth is valid.
+func (g *Generator) onionSkinActive() bool {
+	return g.Settings.OnionSkinEnabled && g.Settings.OnionSkinDepth > 0
+}
+
+// applyOnionSkin adjusts the depth for the final pass if onion skinning is active.
+// It returns the adjusted depth and whether the onion skin was applied.
+func (g *Generator) applyOnionSkin(depth float64, isFinalPass bool) (float64, bool) {
+	if !isFinalPass || !g.onionSkinActive() {
+		return depth, false
+	}
+	skinDepth := depth - g.Settings.OnionSkinDepth
+	if skinDepth < 0 {
+		skinDepth = 0
+	}
+	return skinDepth, true
+}
+
 func (g *Generator) writeRectPart(b *strings.Builder, p model.Placement, partNum int) {
 	toolR := g.Settings.ToolDiameter / 2.0
 
@@ -439,20 +486,26 @@ func (g *Generator) writeRectPart(b *strings.Builder, p model.Placement, partNum
 		}
 		isFinalPass := pass == numPasses
 
-		b.WriteString(g.comment(fmt.Sprintf("Pass %d/%d, depth=%.2fmm", pass, numPasses, depth)))
+		// Apply onion skin on final pass
+		effectiveDepth, skinApplied := g.applyOnionSkin(depth, isFinalPass)
+		if skinApplied {
+			b.WriteString(g.comment(fmt.Sprintf("Onion skin: leaving %.2fmm skin", g.Settings.OnionSkinDepth)))
+		}
+
+		b.WriteString(g.comment(fmt.Sprintf("Pass %d/%d, depth=%.2fmm", pass, numPasses, effectiveDepth)))
 
 		if hasLeadIn {
 			// Lead-in arc: rapid to arc start, plunge, then arc onto the perimeter
-			g.writeLeadIn(b, x0, y0, depth)
+			g.writeLeadIn(b, x0, y0, effectiveDepth)
 		} else {
 			// Rapid to start (top-left corner, slightly outside)
 			b.WriteString(fmt.Sprintf("%s X%s Y%s\n", g.profile.RapidMove, g.format(x0), g.format(y0)))
-			g.writePlunge(b, x0, y0, depth)
+			g.writePlunge(b, x0, y0, effectiveDepth)
 		}
 
 		// Cut rectangle perimeter (clockwise for climb milling)
 		if isFinalPass && g.Settings.PartTabsPerSide > 0 {
-			g.writePerimeterWithTabs(b, x0, y0, x1, y1, depth, tabs)
+			g.writePerimeterWithTabs(b, x0, y0, x1, y1, effectiveDepth, tabs)
 		} else {
 			g.writePerimeter(b, x0, y0, x1, y1)
 		}
@@ -463,6 +516,28 @@ func (g *Generator) writeRectPart(b *strings.Builder, p model.Placement, partNum
 		}
 
 		// Retract between passes
+		b.WriteString(fmt.Sprintf("%s Z%s\n", g.profile.RapidMove, g.format(g.Settings.SafeZ)))
+	}
+
+	// Onion skin cleanup pass: cut through the remaining skin at full depth
+	if g.onionSkinActive() && g.Settings.OnionSkinCleanup {
+		fullDepth := g.Settings.CutDepth
+		b.WriteString(g.comment("Onion skin cleanup pass"))
+		b.WriteString(g.comment(fmt.Sprintf("Cleanup depth=%.2fmm (removing %.2fmm skin)",
+			fullDepth, g.Settings.OnionSkinDepth)))
+
+		if hasLeadIn {
+			g.writeLeadIn(b, x0, y0, fullDepth)
+		} else {
+			b.WriteString(fmt.Sprintf("%s X%s Y%s\n", g.profile.RapidMove, g.format(x0), g.format(y0)))
+			g.writePlunge(b, x0, y0, fullDepth)
+		}
+
+		g.writePerimeter(b, x0, y0, x1, y1)
+
+		if hasLeadOut {
+			g.writeLeadOut(b, x0, y0)
+		}
 		b.WriteString(fmt.Sprintf("%s Z%s\n", g.profile.RapidMove, g.format(g.Settings.SafeZ)))
 	}
 

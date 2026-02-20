@@ -25,6 +25,7 @@ A cross-platform desktop application for optimizing rectangular cut lists and ge
   - Toolpath ordering optimization (nearest-neighbor) to minimize rapid travel
   - Ramped and helical plunge entry strategies for reduced tool stress
   - Dogbone and T-bone corner overcuts for square interior corners
+  - Onion skinning to leave thin material layer and prevent part movement
 - **GCode Preview** — Visual toolpath simulation with color-coded rapid/feed/plunge moves
 - **Toolpath Simulation** — Interactive GCode simulation with progress slider, play/pause/stop/step controls, adjustable speed (0.25x-16x), completed vs remaining cut visualization, live tool position indicator, loop playback, and real-time coordinate display (X/Y/Z/Feed/Type)
 - **Live Simulation Viewport** — Embedded simulation tab in the Results panel for instant toolpath visualization without opening a separate dialog
