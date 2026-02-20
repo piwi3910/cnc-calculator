@@ -136,14 +136,14 @@ jobs:
           zip -r "slabcut-darwin-${{ matrix.goarch }}.app.zip" "${APP_NAME}"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
 
       - name: Upload macOS .app bundle
         if: matrix.goos == 'darwin'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: slabcut-darwin-${{ matrix.goarch }}.app.zip
           path: slabcut-darwin-${{ matrix.goarch }}.app.zip
