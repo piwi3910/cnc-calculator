@@ -25,6 +25,7 @@ type App struct {
 	window  fyne.Window
 	project model.Project
 	tabs    *container.AppTabs
+	history *History
 
 	// UI references for dynamic updates
 	partsContainer  *fyne.Container
@@ -36,6 +37,7 @@ func NewApp(window fyne.Window) *App {
 	return &App{
 		window:  window,
 		project: model.NewProject(),
+		history: NewHistory(),
 	}
 }
 
@@ -44,6 +46,7 @@ func (a *App) SetupMenus() {
 	// File Menu
 	fileMenu := fyne.NewMenu("File",
 		fyne.NewMenuItem("New Project", func() {
+			a.saveState("New Project")
 			a.project = model.NewProject()
 			a.refreshPartsList()
 			a.refreshStockList()
@@ -77,11 +80,20 @@ func (a *App) SetupMenus() {
 
 	// Edit Menu
 	editMenu := fyne.NewMenu("Edit",
+		fyne.NewMenuItem("Undo", func() {
+			a.undo()
+		}),
+		fyne.NewMenuItem("Redo", func() {
+			a.redo()
+		}),
+		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Clear All Parts", func() {
+			a.saveState("Clear All Parts")
 			a.project.Parts = nil
 			a.refreshPartsList()
 		}),
 		fyne.NewMenuItem("Clear All Stock Sheets", func() {
+			a.saveState("Clear All Stock Sheets")
 			a.project.Stocks = nil
 			a.refreshStockList()
 		}),
@@ -134,7 +146,55 @@ func (a *App) Build() fyne.CanvasObject {
 	a.tabs = container.NewAppTabs(partsTab, stockTab, settingsTab, resultsTab)
 	a.tabs.SetTabLocation(container.TabLocationTop)
 
+	a.registerShortcuts()
+
 	return a.tabs
+}
+
+// saveState captures the current project state before a modification.
+func (a *App) saveState(label string) {
+	a.history.Push(MakeSnapshot(a.project.Parts, a.project.Stocks, label))
+}
+
+// undo restores the previous state from the undo stack.
+func (a *App) undo() {
+	current := MakeSnapshot(a.project.Parts, a.project.Stocks, "current")
+	snap, ok := a.history.Undo(current)
+	if !ok {
+		return
+	}
+	a.project.Parts = snap.Parts
+	a.project.Stocks = snap.Stocks
+	a.refreshPartsList()
+	a.refreshStockList()
+}
+
+// redo restores the next state from the redo stack.
+func (a *App) redo() {
+	current := MakeSnapshot(a.project.Parts, a.project.Stocks, "current")
+	snap, ok := a.history.Redo(current)
+	if !ok {
+		return
+	}
+	a.project.Parts = snap.Parts
+	a.project.Stocks = snap.Stocks
+	a.refreshPartsList()
+	a.refreshStockList()
+}
+
+// registerShortcuts adds keyboard shortcuts for undo and redo.
+func (a *App) registerShortcuts() {
+	canvas := a.window.Canvas()
+
+	// Ctrl+Z / Cmd+Z -> Undo
+	canvas.AddShortcut(&fyne.ShortcutUndo{}, func(_ fyne.Shortcut) {
+		a.undo()
+	})
+
+	// Ctrl+Y -> Redo (CustomShortcut for non-Mac)
+	canvas.AddShortcut(&fyne.ShortcutRedo{}, func(_ fyne.Shortcut) {
+		a.redo()
+	})
 }
 
 // ─── Parts Panel ───────────────────────────────────────────
@@ -192,6 +252,7 @@ func (a *App) refreshPartsList() {
 				a.showEditPartDialog(idx)
 			}),
 			widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
+				a.saveState("Delete Part")
 				a.project.Parts = append(a.project.Parts[:idx], a.project.Parts[idx+1:]...)
 				a.refreshPartsList()
 			}),
@@ -245,6 +306,7 @@ func (a *App) showAddPartDialog() {
 				part.Grain = model.GrainVertical
 			}
 
+			a.saveState("Add Part")
 			a.project.Parts = append(a.project.Parts, part)
 			a.refreshPartsList()
 		},
@@ -294,6 +356,7 @@ func (a *App) showEditPartDialog(idx int) {
 			}
 
 			// Update the existing part
+			a.saveState("Edit Part")
 			a.project.Parts[idx].Label = labelEntry.Text
 			a.project.Parts[idx].Width = w
 			a.project.Parts[idx].Height = h
@@ -366,6 +429,7 @@ func (a *App) refreshStockList() {
 				a.showEditStockDialog(idx)
 			}),
 			widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
+				a.saveState("Delete Stock Sheet")
 				a.project.Stocks = append(a.project.Stocks[:idx], a.project.Stocks[idx+1:]...)
 				a.refreshStockList()
 			}),
@@ -443,6 +507,7 @@ func (a *App) showAddStockDialog() {
 				dialog.ShowError(fmt.Errorf("width, height, and quantity must be > 0"), a.window)
 				return
 			}
+			a.saveState("Add Stock Sheet")
 			a.project.Stocks = append(a.project.Stocks, model.NewStockSheet(labelEntry.Text, w, h, q))
 			a.refreshStockList()
 		},
@@ -485,6 +550,7 @@ func (a *App) showEditStockDialog(idx int) {
 				dialog.ShowError(fmt.Errorf("width, height, and quantity must be > 0"), a.window)
 				return
 			}
+			a.saveState("Edit Stock Sheet")
 			a.project.Stocks[idx].Label = labelEntry.Text
 			a.project.Stocks[idx].Width = w
 			a.project.Stocks[idx].Height = h
@@ -651,6 +717,7 @@ func (a *App) loadProject() {
 			dialog.ShowError(err, a.window)
 			return
 		}
+		a.saveState("Load Project")
 		a.project = proj
 		a.refreshPartsList()
 		a.refreshStockList()
@@ -772,6 +839,7 @@ func (a *App) handleImportResult(result partimporter.ImportResult) {
 
 	// Add imported parts to the project
 	if len(result.Parts) > 0 {
+		a.saveState("Import Parts")
 		a.project.Parts = append(a.project.Parts, result.Parts...)
 		a.refreshPartsList()
 	}
