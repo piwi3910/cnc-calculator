@@ -1,0 +1,166 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600">
+  <defs>
+    <!-- Wood grain texture -->
+    <pattern id="woodGrain" x="0" y="0" width="200" height="200" patternUnits="userSpaceOnUse">
+      <rect width="200" height="200" fill="#2a2a2a"/>
+      <path d="M0 20 Q50 18 100 22 T200 20" stroke="#333" stroke-width="0.8" fill="none" opacity="0.5"/>
+      <path d="M0 45 Q60 42 120 48 T200 44" stroke="#333" stroke-width="0.6" fill="none" opacity="0.4"/>
+      <path d="M0 70 Q40 68 90 73 T200 70" stroke="#333" stroke-width="0.7" fill="none" opacity="0.45"/>
+      <path d="M0 98 Q55 95 110 100 T200 97" stroke="#333" stroke-width="0.5" fill="none" opacity="0.35"/>
+      <path d="M0 125 Q45 122 95 128 T200 124" stroke="#333" stroke-width="0.8" fill="none" opacity="0.5"/>
+      <path d="M0 150 Q60 147 115 153 T200 149" stroke="#333" stroke-width="0.6" fill="none" opacity="0.4"/>
+      <path d="M0 178 Q50 175 105 180 T200 177" stroke="#333" stroke-width="0.7" fill="none" opacity="0.45"/>
+    </pattern>
+    
+    <!-- Subtle glow for the cut lines -->
+    <filter id="cutGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+
+    <!-- Drop shadow for the icon -->
+    <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity="0.3"/>
+    </filter>
+
+    <!-- Glow for accent elements -->
+    <filter id="accentGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="600" fill="#1a1a1e"/>
+  
+  <!-- Subtle grid pattern in background -->
+  <g opacity="0.04">
+    <line x1="0" y1="0" x2="0" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="40" y1="0" x2="40" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="80" y1="0" x2="80" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="120" y1="0" x2="120" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="160" y1="0" x2="160" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="200" y1="0" x2="200" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="240" y1="0" x2="240" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="280" y1="0" x2="280" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="320" y1="0" x2="320" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="360" y1="0" x2="360" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="400" y1="0" x2="400" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="440" y1="0" x2="440" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="480" y1="0" x2="480" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="520" y1="0" x2="520" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="560" y1="0" x2="560" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="600" y1="0" x2="600" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="640" y1="0" x2="640" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="680" y1="0" x2="680" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="720" y1="0" x2="720" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="760" y1="0" x2="760" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="800" y1="0" x2="800" y2="600" stroke="#fff" stroke-width="0.5"/>
+    <line x1="0" y1="40" x2="800" y2="40" stroke="#fff" stroke-width="0.5"/>
+    <line x1="0" y1="80" x2="800" y2="80" stroke="#fff" stroke-width="0.5"/>
+    <line x1="0" y1="120" x2="800" y2="120" stroke="#fff" stroke-width="0.5"/>
+    <line x1="0" y1="160" x2="800" y2="160" stroke="#fff" stroke-width="0.5"/>
+    <line x1="0" y1="200" x2="800" y2="200" stroke="#fff" stroke-width="0.5"/>
+    <line x1="0" y1="240" x2="800" y2="240" stroke="#fff" stroke-width="0.5"/>
+    <line x1="0" y1="280" x2="800" y2="280" stroke="#fff" stroke-width="0.5"/>
+    <line x1="0" y1="320" x2="800" y2="320" stroke="#fff" stroke-width="0.5"/>
+    <line x1="0" y1="360" x2="800" y2="360" stroke="#fff" stroke-width="0.5"/>
+    <line x1="0" y1="400" x2="800" y2="400" stroke="#fff" stroke-width="0.5"/>
+    <line x1="0" y1="440" x2="800" y2="440" stroke="#fff" stroke-width="0.5"/>
+    <line x1="0" y1="480" x2="800" y2="480" stroke="#fff" stroke-width="0.5"/>
+    <line x1="0" y1="520" x2="800" y2="520" stroke="#fff" stroke-width="0.5"/>
+    <line x1="0" y1="560" x2="800" y2="560" stroke="#fff" stroke-width="0.5"/>
+  </g>
+
+  <!-- ═══ ICON: Nested cut sheet ═══ -->
+  <g transform="translate(400, 210)" filter="url(#shadow)">
+    
+    <!-- Main slab/sheet outline -->
+    <rect x="-120" y="-90" width="240" height="180" rx="4" 
+          fill="#2d2520" stroke="#c8956c" stroke-width="2.5" opacity="0.95"/>
+    
+    <!-- Wood grain overlay on slab -->
+    <rect x="-120" y="-90" width="240" height="180" rx="4" 
+          fill="url(#woodGrain)" opacity="0.3"/>
+
+    <!-- Nested cut pieces with kerf gaps -->
+    <!-- Large piece top-left -->
+    <rect x="-112" y="-82" width="108" height="78" rx="2" 
+          fill="#D4845A" opacity="0.85"/>
+    
+    <!-- Medium piece top-right -->
+    <rect x="4" y="-82" width="108" height="38" rx="2" 
+          fill="#C27245" opacity="0.85"/>
+    
+    <!-- Small piece mid-right -->
+    <rect x="4" y="-36" width="52" height="38" rx="2" 
+          fill="#B8623A" opacity="0.85"/>
+    
+    <!-- Small piece mid-right-2 -->
+    <rect x="64" y="-36" width="48" height="38" rx="2" 
+          fill="#A85530" opacity="0.85"/>
+
+    <!-- Bottom piece full width -->
+    <rect x="-112" y="10" width="140" height="72" rx="2" 
+          fill="#E09060" opacity="0.85"/>
+    
+    <!-- Bottom right piece -->
+    <rect x="36" y="10" width="76" height="34" rx="2" 
+          fill="#CB7D50" opacity="0.85"/>
+
+    <!-- Bottom right small -->
+    <rect x="36" y="52" width="76" height="30" rx="2" 
+          fill="#D4845A" opacity="0.85"/>
+
+    <!-- Cut lines (kerf visualization) - glowing laser/bit lines -->
+    <g filter="url(#cutGlow)" opacity="0.9">
+      <!-- Horizontal cuts -->
+      <line x1="-112" y1="-1" x2="112" y2="-1" stroke="#FF6B35" stroke-width="1.5" stroke-dasharray="4,2"/>
+      <line x1="4" y1="-40" x2="112" y2="-40" stroke="#FF6B35" stroke-width="1.5" stroke-dasharray="4,2"/>
+      <line x1="36" y1="48" x2="112" y2="48" stroke="#FF6B35" stroke-width="1.5" stroke-dasharray="4,2"/>
+      
+      <!-- Vertical cuts -->
+      <line x1="0" y1="-82" x2="0" y2="2" stroke="#FF6B35" stroke-width="1.5" stroke-dasharray="4,2"/>
+      <line x1="60" y1="-40" x2="60" y2="2" stroke="#FF6B35" stroke-width="1.5" stroke-dasharray="4,2"/>
+      <line x1="32" y1="6" x2="32" y2="82" stroke="#FF6B35" stroke-width="1.5" stroke-dasharray="4,2"/>
+    </g>
+
+    <!-- CNC toolpath indicator — small animated-style path arrow -->
+    <g transform="translate(-80, -55)" opacity="0.7">
+      <circle cx="0" cy="0" r="3" fill="none" stroke="#FF6B35" stroke-width="1.5"/>
+      <circle cx="0" cy="0" r="1" fill="#FF6B35"/>
+    </g>
+  </g>
+
+  <!-- ═══ WORDMARK ═══ -->
+  <g transform="translate(426, 370)">
+    <!-- SLAB on the left, CUT on the right, balanced around center -->
+    <text x="-6" y="0" 
+          font-family="'SF Pro Display', 'Segoe UI', 'Helvetica Neue', sans-serif" 
+          font-size="72" 
+          font-weight="800" 
+          letter-spacing="6"
+          text-anchor="end" 
+          fill="#F0E6DC">SLAB</text>
+    <text x="18" y="0" 
+          font-family="'SF Pro Display', 'Segoe UI', 'Helvetica Neue', sans-serif" 
+          font-size="72" 
+          font-weight="800" 
+          letter-spacing="6"
+          text-anchor="start" 
+          fill="#FF6B35">CUT</text>
+
+    <!-- Accent line under wordmark -->
+    <line x1="-170" y1="16" x2="170" y2="16" stroke="#FF6B35" stroke-width="2" opacity="0.6"/>
+  </g>
+
+  <!-- ═══ TAGLINE ═══ -->
+  <text x="400" y="420" 
+        font-family="'SF Pro Text', 'Segoe UI', 'Helvetica Neue', sans-serif" 
+        font-size="16" 
+        font-weight="400" 
+        letter-spacing="4"
+        text-anchor="middle" 
+        fill="#8a8a8a">CNC CUT LIST OPTIMIZER</text>
+
+</svg>

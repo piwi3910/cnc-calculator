@@ -29,6 +29,10 @@ type App struct {
 	tabs    *container.AppTabs
 	history *History
 
+	// Inventory management
+	inventory     model.Inventory
+	inventoryPath string
+
 	// UI references for dynamic updates
 	partsContainer  *fyne.Container
 	stockContainer  *fyne.Container
@@ -52,7 +56,20 @@ func NewApp(window fyne.Window) *App {
 		history: NewHistory(),
 	}
 	app.loadCustomProfiles()
+	app.loadInventory()
 	return app
+}
+
+// loadInventory loads tool and stock inventory from the default path.
+func (a *App) loadInventory() {
+	inv, path, err := project.LoadOrCreateInventory()
+	if err != nil {
+		fmt.Printf("Warning: could not load inventory: %v\n", err)
+		a.inventory = model.DefaultInventory()
+		return
+	}
+	a.inventory = inv
+	a.inventoryPath = path
 }
 
 // loadCustomProfiles loads user-defined GCode profiles from disk on startup.
@@ -157,12 +174,10 @@ func (a *App) SetupMenus() {
 				"Coming soon — see issue #12 for progress.", a.window)
 		}),
 		fyne.NewMenuItem("Tool Inventory...", func() {
-			dialog.ShowInformation("Tool Inventory",
-				"Coming soon — see issue #11 for progress.", a.window)
+			a.showToolInventoryDialog()
 		}),
 		fyne.NewMenuItem("Stock Inventory...", func() {
-			dialog.ShowInformation("Stock Inventory",
-				"Coming soon — see issue #11 for progress.", a.window)
+			a.showStockInventoryDialog()
 		}),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Import/Export Data...", func() {
@@ -455,10 +470,15 @@ func (a *App) buildStockPanel() fyne.CanvasObject {
 		a.showAddStockDialog()
 	})
 
+	fromInventoryBtn := widget.NewButtonWithIcon("Add from Inventory", theme.FolderOpenIcon(), func() {
+		a.showAddStockFromInventory()
+	})
+
 	return container.NewBorder(
 		container.NewHBox(
 			widget.NewLabelWithStyle("Available Stock Sheets", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			layout.NewSpacer(),
+			fromInventoryBtn,
 			addBtn,
 		),
 		nil, nil, nil,
@@ -682,6 +702,7 @@ func (a *App) buildSettingsPanel() fyne.CanvasObject {
 	))
 
 	cncSection := widget.NewCard("CNC / GCode", "", container.NewGridWithColumns(2,
+		widget.NewLabel("Load Tool Profile"), a.buildToolProfileSelector(),
 		widget.NewLabel("GCode Profile"), a.buildProfileSelector(),
 		widget.NewLabel("Tool Diameter (mm)"), floatEntry(&s.ToolDiameter),
 		widget.NewLabel("Feed Rate (mm/min)"), floatEntry(&s.FeedRate),
