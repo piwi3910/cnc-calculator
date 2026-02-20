@@ -185,6 +185,121 @@ func (g *Generator) writeFooter(b *strings.Builder) {
 	}
 }
 
+// writePlunge generates the plunge entry at position (x, y) to the given depth
+// using the configured plunge strategy (direct, ramp, or helix).
+// The tool is assumed to already be at (x, y) at safe Z height.
+func (g *Generator) writePlunge(b *strings.Builder, x, y, depth float64) {
+	switch g.Settings.PlungeType {
+	case model.PlungeRamp:
+		g.writeRampPlunge(b, x, y, depth)
+	case model.PlungeHelix:
+		g.writeHelixPlunge(b, x, y, depth)
+	default:
+		g.writeDirectPlunge(b, depth)
+	}
+}
+
+// writeDirectPlunge performs a standard straight-down plunge.
+func (g *Generator) writeDirectPlunge(b *strings.Builder, depth float64) {
+	b.WriteString(fmt.Sprintf("%s Z%s F%s\n", g.profile.FeedMove,
+		g.format(-depth), g.format(g.Settings.PlungeRate)))
+}
+
+// writeRampPlunge generates a linear ramp entry. The tool moves forward along X
+// while simultaneously descending to the target depth, creating an angled entry
+// that reduces axial load on the tool. The ramp length is calculated from the
+// configured ramp angle and the depth to plunge.
+func (g *Generator) writeRampPlunge(b *strings.Builder, x, y, depth float64) {
+	angle := g.Settings.RampAngle
+	if angle <= 0 {
+		angle = 3.0 // Default 3 degrees
+	}
+	if angle > 45.0 {
+		angle = 45.0 // Cap at 45 degrees
+	}
+
+	// Calculate ramp length from angle: length = depth / tan(angle)
+	rampLength := depth / math.Tan(angle*math.Pi/180.0)
+
+	b.WriteString(g.comment(fmt.Sprintf("Ramp plunge entry (%.1f deg, length=%.2fmm)", angle, rampLength)))
+
+	// Rapid to safe Z at current position
+	b.WriteString(fmt.Sprintf("%s Z%s\n", g.profile.RapidMove, g.format(0)))
+
+	// Ramp down: move forward along X while descending
+	rampEndX := x + rampLength
+	b.WriteString(fmt.Sprintf("%s X%s Y%s Z%s F%s\n", g.profile.FeedMove,
+		g.format(rampEndX), g.format(y), g.format(-depth), g.format(g.Settings.PlungeRate)))
+
+	// Move back to original X at cut depth
+	b.WriteString(fmt.Sprintf("%s X%s Y%s F%s\n", g.profile.FeedMove,
+		g.format(x), g.format(y), g.format(g.Settings.FeedRate)))
+}
+
+// writeHelixPlunge generates a helical plunge entry. The tool descends in a
+// circular helix pattern, distributing the cutting force over a larger area
+// and reducing heat buildup. The helix diameter and depth per revolution are
+// configurable.
+func (g *Generator) writeHelixPlunge(b *strings.Builder, x, y, depth float64) {
+	diameter := g.Settings.HelixDiameter
+	if diameter <= 0 {
+		diameter = g.Settings.ToolDiameter // Default to tool diameter
+	}
+	radius := diameter / 2.0
+
+	// Depth per revolution as a percentage of pass depth
+	revPercent := g.Settings.HelixRevPercent
+	if revPercent <= 0 {
+		revPercent = 50.0 // Default 50%
+	}
+	depthPerRev := g.Settings.PassDepth * revPercent / 100.0
+	if depthPerRev <= 0 {
+		depthPerRev = 1.0 // Minimum 1mm per revolution
+	}
+
+	numRevolutions := math.Ceil(depth / depthPerRev)
+	if numRevolutions < 1 {
+		numRevolutions = 1
+	}
+
+	b.WriteString(g.comment(fmt.Sprintf("Helix plunge entry (dia=%.1fmm, %.1f rev)", diameter, numRevolutions)))
+
+	// Move to helix start position (center + radius offset in X)
+	helixStartX := x + radius
+	b.WriteString(fmt.Sprintf("%s X%s Y%s\n", g.profile.RapidMove,
+		g.format(helixStartX), g.format(y)))
+	b.WriteString(fmt.Sprintf("%s Z%s\n", g.profile.RapidMove, g.format(0)))
+
+	// Generate helix revolutions using G2/G3 arcs with Z descent
+	// I offset = distance from current position to center in X
+	// J offset = distance from current position to center in Y
+	iOffset := -radius // Center is to the left of start position
+	jOffset := 0.0
+
+	arcCmd := "G2" // Clockwise helix
+	if g.Settings.UseClimb {
+		arcCmd = "G3" // Counter-clockwise for climb milling
+	}
+
+	currentDepth := 0.0
+	for rev := 0; rev < int(numRevolutions); rev++ {
+		currentDepth += depthPerRev
+		if currentDepth > depth {
+			currentDepth = depth
+		}
+		// Full circle arc back to the same XY position, but lower in Z
+		b.WriteString(fmt.Sprintf("%s X%s Y%s Z%s I%s J%s F%s\n",
+			arcCmd,
+			g.format(helixStartX), g.format(y), g.format(-currentDepth),
+			g.format(iOffset), g.format(jOffset),
+			g.format(g.Settings.PlungeRate)))
+	}
+
+	// Move back to the original position at cut depth
+	b.WriteString(fmt.Sprintf("%s X%s Y%s F%s\n", g.profile.FeedMove,
+		g.format(x), g.format(y), g.format(g.Settings.FeedRate)))
+}
+
 func (g *Generator) writePart(b *strings.Builder, p model.Placement, partNum int) {
 	if len(p.Part.Outline) > 0 {
 		g.writeOutlinePart(b, p, partNum)
@@ -229,9 +344,8 @@ func (g *Generator) writeOutlinePart(b *strings.Builder, p model.Placement, part
 		// Rapid to first point
 		b.WriteString(fmt.Sprintf("%s X%s Y%s\n", g.profile.RapidMove,
 			g.format(translated[0].X), g.format(translated[0].Y)))
-		// Plunge
-		b.WriteString(fmt.Sprintf("%s Z%s F%s\n", g.profile.FeedMove,
-			g.format(-depth), g.format(g.Settings.PlungeRate)))
+		// Plunge using configured strategy
+		g.writePlunge(b, translated[0].X, translated[0].Y, depth)
 
 		// Follow outline
 		for i := 1; i < len(translated); i++ {
@@ -333,7 +447,7 @@ func (g *Generator) writeRectPart(b *strings.Builder, p model.Placement, partNum
 		} else {
 			// Rapid to start (top-left corner, slightly outside)
 			b.WriteString(fmt.Sprintf("%s X%s Y%s\n", g.profile.RapidMove, g.format(x0), g.format(y0)))
-			b.WriteString(fmt.Sprintf("%s Z%s F%s ; Plunge\n", g.profile.FeedMove, g.format(-depth), g.format(g.Settings.PlungeRate)))
+			g.writePlunge(b, x0, y0, depth)
 		}
 
 		// Cut rectangle perimeter (clockwise for climb milling)

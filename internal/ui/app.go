@@ -779,6 +779,18 @@ func (a *App) buildSettingsPanel() fyne.CanvasObject {
 		widget.NewLabel("Approach Angle (degrees)"), floatEntry(&s.LeadInAngle),
 	))
 
+	plungeTypeSelect := widget.NewSelect(model.PlungeTypeOptions(), func(selected string) {
+		s.PlungeType = model.PlungeTypeFromString(selected)
+	})
+	plungeTypeSelect.SetSelected(s.PlungeType.String())
+
+	plungeSection := widget.NewCard("Plunge Entry Strategy", "How the tool enters the material", container.NewGridWithColumns(2,
+		widget.NewLabel("Plunge Type"), plungeTypeSelect,
+		widget.NewLabel("Ramp Angle (degrees)"), floatEntry(&s.RampAngle),
+		widget.NewLabel("Helix Diameter (mm)"), floatEntry(&s.HelixDiameter),
+		widget.NewLabel("Helix Depth/Rev (%)"), floatEntry(&s.HelixRevPercent),
+	))
+
 	// Stock sheet holding tabs (for securing sheet to CNC bed)
 	stockTabEnabled := widget.NewCheck("", func(b bool) { s.StockTabs.Enabled = b })
 	stockTabEnabled.Checked = s.StockTabs.Enabled
@@ -800,6 +812,7 @@ func (a *App) buildSettingsPanel() fyne.CanvasObject {
 	return container.NewVScroll(container.NewVBox(
 		optimizerSection,
 		cncSection,
+		plungeSection,
 		leadInOutSection,
 		stockTabSection,
 	))

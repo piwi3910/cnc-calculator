@@ -362,3 +362,138 @@ func TestDefaultSettings_ToolpathOrderingDisabled(t *testing.T) {
 		t.Error("expected default OptimizeToolpath to be false")
 	}
 }
+
+// ─── Plunge Entry Strategy Tests ────────────────────────────
+
+func TestDirectPlunge_Default(t *testing.T) {
+	settings := newTestSettings()
+	// PlungeType defaults to "" which maps to direct
+	gen := New(settings)
+	code := gen.GenerateSheet(newTestSheet(), 1)
+
+	// Should not contain ramp or helix comments
+	if strings.Contains(code, "Ramp plunge") {
+		t.Error("expected no ramp plunge when PlungeType is direct")
+	}
+	if strings.Contains(code, "Helix plunge") {
+		t.Error("expected no helix plunge when PlungeType is direct")
+	}
+}
+
+func TestRampPlunge(t *testing.T) {
+	settings := newTestSettings()
+	settings.PlungeType = model.PlungeRamp
+	settings.RampAngle = 5.0
+	gen := New(settings)
+	code := gen.GenerateSheet(newTestSheet(), 1)
+
+	if !strings.Contains(code, "Ramp plunge entry") {
+		t.Error("expected ramp plunge comment when PlungeType is ramp")
+	}
+	// Ramp involves simultaneous XYZ move
+	if !strings.Contains(code, "Z-") {
+		t.Error("expected Z descent in ramp plunge")
+	}
+}
+
+func TestHelixPlunge(t *testing.T) {
+	settings := newTestSettings()
+	settings.PlungeType = model.PlungeHelix
+	settings.HelixDiameter = 8.0
+	settings.HelixRevPercent = 50.0
+	gen := New(settings)
+	code := gen.GenerateSheet(newTestSheet(), 1)
+
+	if !strings.Contains(code, "Helix plunge entry") {
+		t.Error("expected helix plunge comment when PlungeType is helix")
+	}
+	// Helix uses arc commands
+	if !strings.Contains(code, "G3") && !strings.Contains(code, "G2") {
+		t.Error("expected arc command (G2/G3) in helix plunge")
+	}
+}
+
+func TestHelixPlunge_MultiplePasses(t *testing.T) {
+	settings := newTestSettings()
+	settings.PlungeType = model.PlungeHelix
+	settings.HelixDiameter = 8.0
+	settings.HelixRevPercent = 50.0
+	settings.CutDepth = 12.0
+	settings.PassDepth = 6.0 // 2 passes
+	gen := New(settings)
+	code := gen.GenerateSheet(newTestSheet(), 1)
+
+	helixCount := strings.Count(code, "Helix plunge entry")
+	if helixCount != 2 {
+		t.Errorf("expected 2 helix plunge entries (one per pass), got %d", helixCount)
+	}
+}
+
+func TestRampPlunge_AngleClamping(t *testing.T) {
+	settings := newTestSettings()
+	settings.PlungeType = model.PlungeRamp
+	settings.RampAngle = 0 // Should default to 3 degrees
+	gen := New(settings)
+	code := gen.GenerateSheet(newTestSheet(), 1)
+
+	if !strings.Contains(code, "Ramp plunge entry (3.0 deg") {
+		t.Errorf("expected default ramp angle of 3.0 degrees when set to 0, got:\n%s", code)
+	}
+}
+
+func TestHelixPlunge_ClimbMilling(t *testing.T) {
+	settings := newTestSettings()
+	settings.PlungeType = model.PlungeHelix
+	settings.HelixDiameter = 8.0
+	settings.UseClimb = true
+	gen := New(settings)
+	code := gen.GenerateSheet(newTestSheet(), 1)
+
+	if !strings.Contains(code, "G3") {
+		t.Error("expected G3 (counter-clockwise) for climb milling helix")
+	}
+}
+
+func TestHelixPlunge_ConventionalMilling(t *testing.T) {
+	settings := newTestSettings()
+	settings.PlungeType = model.PlungeHelix
+	settings.HelixDiameter = 8.0
+	settings.UseClimb = false
+	gen := New(settings)
+	code := gen.GenerateSheet(newTestSheet(), 1)
+
+	if !strings.Contains(code, "G2 ") {
+		t.Error("expected G2 (clockwise) for conventional milling helix")
+	}
+}
+
+func TestDefaultSettings_PlungeType(t *testing.T) {
+	s := model.DefaultSettings()
+	if s.PlungeType != model.PlungeDirect {
+		t.Errorf("expected default PlungeType to be direct, got %s", s.PlungeType)
+	}
+	if s.RampAngle != 3.0 {
+		t.Errorf("expected default RampAngle to be 3.0, got %f", s.RampAngle)
+	}
+	if s.HelixDiameter != 5.0 {
+		t.Errorf("expected default HelixDiameter to be 5.0, got %f", s.HelixDiameter)
+	}
+}
+
+func TestPlungeTypeFromString(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected model.PlungeType
+	}{
+		{"Direct", model.PlungeDirect},
+		{"Ramp", model.PlungeRamp},
+		{"Helix", model.PlungeHelix},
+		{"unknown", model.PlungeDirect},
+	}
+	for _, tt := range tests {
+		got := model.PlungeTypeFromString(tt.input)
+		if got != tt.expected {
+			t.Errorf("PlungeTypeFromString(%q) = %q, want %q", tt.input, got, tt.expected)
+		}
+	}
+}

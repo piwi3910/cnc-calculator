@@ -6,6 +6,44 @@ import (
 	"github.com/google/uuid"
 )
 
+// PlungeType represents the plunge entry strategy for CNC operations.
+type PlungeType string
+
+const (
+	PlungeDirect PlungeType = "direct" // Straight plunge into material
+	PlungeRamp   PlungeType = "ramp"   // Ramped entry at an angle
+	PlungeHelix  PlungeType = "helix"  // Helical plunge entry
+)
+
+// PlungeTypeOptions returns the available plunge type choices for UI display.
+func PlungeTypeOptions() []string {
+	return []string{"Direct", "Ramp", "Helix"}
+}
+
+// PlungeTypeFromString converts a display string to a PlungeType.
+func PlungeTypeFromString(s string) PlungeType {
+	switch s {
+	case "Ramp":
+		return PlungeRamp
+	case "Helix":
+		return PlungeHelix
+	default:
+		return PlungeDirect
+	}
+}
+
+// String returns the display name for a PlungeType.
+func (p PlungeType) String() string {
+	switch p {
+	case PlungeRamp:
+		return "Ramp"
+	case PlungeHelix:
+		return "Helix"
+	default:
+		return "Direct"
+	}
+}
+
 // Grain represents the grain direction constraint for a part.
 type Grain int
 
@@ -157,6 +195,12 @@ type CutSettings struct {
 
 	// Toolpath ordering (minimize rapid travel distance)
 	OptimizeToolpath bool `json:"optimize_toolpath"` // Enable nearest-neighbor toolpath ordering
+
+	// Plunge entry strategy
+	PlungeType      PlungeType `json:"plunge_type"`       // Plunge strategy: direct, ramp, or helix
+	RampAngle       float64    `json:"ramp_angle"`        // Ramp entry angle in degrees (for ramp plunge)
+	HelixDiameter   float64    `json:"helix_diameter"`    // Helix diameter in mm (for helix plunge)
+	HelixRevPercent float64    `json:"helix_rev_percent"` // Helix depth per revolution as % of pass depth
 }
 
 // StockTabConfig defines holding tabs for the stock sheet edges.
@@ -407,6 +451,11 @@ func DefaultSettings() CutSettings {
 		},
 		GCodeProfile:     "Generic", // Default GCode profile
 		OptimizeToolpath: false,     // Disabled by default
+
+		PlungeType:      PlungeDirect, // Direct plunge by default
+		RampAngle:       3.0,          // 3 degree ramp angle
+		HelixDiameter:   5.0,          // 5mm helix diameter
+		HelixRevPercent: 50.0,         // 50% of pass depth per revolution
 	}
 }
 
