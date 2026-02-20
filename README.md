@@ -38,6 +38,7 @@ A cross-platform desktop application for optimizing rectangular cut lists and ge
 - **Excel Import** — Read .xlsx files with auto header detection
 - **DXF Import** — Import non-rectangular parts from DXF files (LWPOLYLINE, LINE, ARC, CIRCLE)
 - **PDF Export** — Multi-page cut diagrams with dimensions, labels, efficiency stats, and summary
+- **QR Label Export** — Generate printable QR-coded labels for cut parts with part name, dimensions, and sheet position (Avery 5160 layout)
 - **GCode Export** — Per-sheet GCode files with configurable profiles
 - **Project Save/Load** — JSON-based project files (`.cnccalc`)
 
@@ -116,7 +117,8 @@ SlabCut/
 │   │   ├── importer.go         # CSV/Excel import with auto-detection
 │   │   └── dxf.go              # DXF file import
 │   ├── export/
-│   │   └── pdf.go              # PDF export of cut diagrams
+│   │   ├── pdf.go              # PDF export of cut diagrams
+│   │   └── labels.go           # QR code label generation
 │   ├── project/
 │   │   ├── project.go          # Save/load project files
 │   │   ├── profiles.go         # Custom GCode profile persistence

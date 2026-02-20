@@ -1137,7 +1137,10 @@ func (a *App) refreshResults() {
 	saveOffcutsBtn := widget.NewButtonWithIcon("Save Offcuts to Inventory", theme.ContentAddIcon(), func() {
 		a.saveOffcutsToInventory()
 	})
-	toolbar := container.NewHBox(layout.NewSpacer(), saveOffcutsBtn, simulateBtn, exportBtn)
+	labelsBtn := widget.NewButtonWithIcon("Generate Labels", theme.ListIcon(), func() {
+		a.exportLabels()
+	})
+	toolbar := container.NewHBox(layout.NewSpacer(), saveOffcutsBtn, labelsBtn, simulateBtn, exportBtn)
 
 	// Build both cut layout and inline simulation views
 	sheetResults := widgets.RenderSheetResults(a.project.Result, a.project.Settings, a.project.Parts)
@@ -1482,6 +1485,29 @@ func (a *App) exportPDF() {
 		}
 	}, a.window)
 	d.SetFileName("cut-layout.pdf")
+	d.Show()
+}
+
+func (a *App) exportLabels() {
+	if a.project.Result == nil || len(a.project.Result.Sheets) == 0 {
+		dialog.ShowInformation("No results", "Run the optimizer first before generating labels.", a.window)
+		return
+	}
+
+	d := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
+		if err != nil || writer == nil {
+			return
+		}
+		writer.Close()
+		path := writer.URI().Path()
+		if exportErr := export.ExportLabels(path, *a.project.Result); exportErr != nil {
+			dialog.ShowError(exportErr, a.window)
+		} else {
+			dialog.ShowInformation("Export Complete",
+				fmt.Sprintf("QR code labels saved to %s", path), a.window)
+		}
+	}, a.window)
+	d.SetFileName("part-labels.pdf")
 	d.Show()
 }
 
