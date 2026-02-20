@@ -418,6 +418,33 @@ func RenderSheetResults(result *model.OptimizeResult, settings model.CutSettings
 		}
 	}
 
+	// Offcuts / remnants section
+	offcuts := model.DetectAllOffcuts(*result, settings.KerfWidth)
+	if len(offcuts) > 0 {
+		items = append(items, widget.NewSeparator())
+		offcutHeader := widget.NewLabel("Usable Offcuts / Remnants:")
+		offcutHeader.TextStyle = fyne.TextStyle{Bold: true}
+		items = append(items, offcutHeader)
+
+		for _, o := range offcuts {
+			offcutText := fmt.Sprintf(
+				"  Sheet %d (%s): %.0f x %.0f mm at position (%.0f, %.0f) — %.0f sq mm",
+				o.SheetIndex+1, o.SheetLabel, o.Width, o.Height, o.X, o.Y, o.Area(),
+			)
+			if o.PricePerSheet > 0 {
+				offcutText += fmt.Sprintf(" (~%.2f value)", o.PricePerSheet)
+			}
+			items = append(items, widget.NewLabel(offcutText))
+		}
+
+		totalOffcutArea := model.TotalOffcutArea(offcuts)
+		offcutSummary := widget.NewLabel(fmt.Sprintf(
+			"  Total reusable remnant area: %.0f sq mm (%d piece(s))",
+			totalOffcutArea, len(offcuts),
+		))
+		items = append(items, offcutSummary)
+	}
+
 	summaryText := fmt.Sprintf(
 		"Total: %d sheets used, %.1f%% overall efficiency",
 		len(result.Sheets), result.TotalEfficiency(),

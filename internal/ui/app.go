@@ -844,7 +844,10 @@ func (a *App) refreshResults() {
 	exportBtn := widget.NewButtonWithIcon("Export GCode", theme.DocumentSaveIcon(), func() {
 		a.exportGCode()
 	})
-	toolbar := container.NewHBox(layout.NewSpacer(), previewBtn, exportBtn)
+	saveOffcutsBtn := widget.NewButtonWithIcon("Save Offcuts to Inventory", theme.ContentAddIcon(), func() {
+		a.saveOffcutsToInventory()
+	})
+	toolbar := container.NewHBox(layout.NewSpacer(), saveOffcutsBtn, previewBtn, exportBtn)
 
 	// Sheet results visualization (includes SheetCanvas graphics and summary)
 	sheetResults := widgets.RenderSheetResults(a.project.Result, a.project.Settings)
@@ -894,6 +897,49 @@ func (a *App) previewGCode() {
 	d := dialog.NewCustom("GCode Toolpath Preview", "Close", content, a.window)
 	d.Resize(fyne.NewSize(800, 600))
 	d.Show()
+}
+
+// saveOffcutsToInventory detects usable offcuts from the current result and saves them
+// as stock presets in the inventory for future projects.
+func (a *App) saveOffcutsToInventory() {
+	if a.project.Result == nil || len(a.project.Result.Sheets) == 0 {
+		dialog.ShowInformation("No Results", "Run the optimizer first to detect offcuts.", a.window)
+		return
+	}
+
+	offcuts := model.DetectAllOffcuts(*a.project.Result, a.project.Settings.KerfWidth)
+	if len(offcuts) == 0 {
+		dialog.ShowInformation("No Offcuts", "No usable remnant areas were detected.", a.window)
+		return
+	}
+
+	var summary strings.Builder
+	summary.WriteString(fmt.Sprintf("Found %d usable offcut(s):\n\n", len(offcuts)))
+	for i, o := range offcuts {
+		summary.WriteString(fmt.Sprintf("%d. Sheet %d (%s): %.0f x %.0f mm",
+			i+1, o.SheetIndex+1, o.SheetLabel, o.Width, o.Height))
+		if o.PricePerSheet > 0 {
+			summary.WriteString(fmt.Sprintf(" (~%.2f value)", o.PricePerSheet))
+		}
+		summary.WriteString("\n")
+	}
+	summary.WriteString("\nSave these as stock presets in your inventory?")
+
+	dialog.ShowConfirm("Save Offcuts to Inventory", summary.String(), func(ok bool) {
+		if !ok {
+			return
+		}
+		count := 0
+		for _, o := range offcuts {
+			sheet := o.ToStockSheet()
+			preset := model.NewStockPresetWithPrice(sheet.Label, sheet.Width, sheet.Height, "Offcut", sheet.PricePerSheet)
+			a.inventory.Stocks = append(a.inventory.Stocks, preset)
+			count++
+		}
+		a.saveInventory()
+		dialog.ShowInformation("Offcuts Saved",
+			fmt.Sprintf("%d offcut(s) added to stock inventory.", count), a.window)
+	}, a.window)
 }
 
 // ─── Actions ───────────────────────────────────────────────
