@@ -356,6 +356,11 @@ type CutSettings struct {
 
 	// Fixture/clamp exclusion zones
 	ClampZones []ClampZone `json:"clamp_zones,omitempty"` // Clamp/fixture zones to exclude from optimization
+
+	// Dust shoe collision detection
+	DustShoeEnabled   bool    `json:"dust_shoe_enabled"`   // Enable dust shoe collision checking
+	DustShoeWidth     float64 `json:"dust_shoe_width"`     // Dust shoe diameter/width in mm
+	DustShoeClearance float64 `json:"dust_shoe_clearance"` // Minimum clearance between dust shoe edge and clamp (mm)
 }
 
 // StockTabConfig defines holding tabs for the stock sheet edges.
@@ -409,6 +414,19 @@ func (cz ClampZone) ToTabZone() TabZone {
 		Width:  cz.Width,
 		Height: cz.Height,
 	}
+}
+
+// DustShoeCollision describes a potential collision between the dust shoe and a clamp/fixture.
+type DustShoeCollision struct {
+	SheetIndex   int     `json:"sheet_index"`   // 0-based index of the sheet
+	SheetLabel   string  `json:"sheet_label"`   // Label of the stock sheet
+	ClampLabel   string  `json:"clamp_label"`   // Label of the clamp zone
+	PartLabel    string  `json:"part_label"`     // Label of the part being cut near the clamp
+	PartIndex    int     `json:"part_index"`     // Index of the placement on the sheet
+	ToolX        float64 `json:"tool_x"`         // Tool center X position where collision occurs
+	ToolY        float64 `json:"tool_y"`         // Tool center Y position where collision occurs
+	Distance     float64 `json:"distance"`       // Distance from dust shoe edge to clamp edge (negative = overlap)
+	IsDuringCut  bool    `json:"is_during_cut"`  // true if during cutting move, false if during rapid
 }
 
 // GCodeProfile defines a post-processor configuration for different CNC controllers.
@@ -643,6 +661,9 @@ func DefaultSettings() CutSettings {
 		OnionSkinEnabled: false,             // Onion skinning disabled by default
 		OnionSkinDepth:   0.2,               // 0.2mm thin skin
 		OnionSkinCleanup: false,             // No cleanup pass by default
+		DustShoeEnabled:   false,  // Dust shoe collision detection disabled by default
+		DustShoeWidth:     80.0,   // 80mm default dust shoe diameter
+		DustShoeClearance: 5.0,    // 5mm minimum clearance
 	}
 }
 

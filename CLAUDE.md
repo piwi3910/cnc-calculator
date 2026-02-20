@@ -40,7 +40,7 @@ github.com/piwi3910/SlabCut/
 ├── internal/
 │   ├── model/              # Core types + inventory/library/config types
 │   ├── engine/             # Guillotine packer + genetic algorithm optimizer
-│   ├── gcode/              # GCode generator + parser (for preview)
+│   ├── gcode/              # GCode generator + parser (for preview) + dust shoe collision detection
 │   ├── importer/           # CSV/Excel/DXF import
 │   ├── export/             # PDF export
 │   ├── ui/                 # Main Fyne UI, dialogs, admin, profile editor

@@ -41,6 +41,9 @@ type App struct {
 	stockContainer  *fyne.Container
 	resultContainer *fyne.Container
 	profileSelector *widget.Select
+
+	// Dust shoe collision results from last optimization
+	lastCollisions []model.DustShoeCollision
 }
 
 func NewApp(application fyne.App, window fyne.Window) *App {
@@ -928,6 +931,18 @@ func (a *App) buildSettingsPanel() fyne.CanvasObject {
 
 	clampZoneSection := a.buildClampZoneSection()
 
+	dustShoeCheck := widget.NewCheck("", func(b bool) { s.DustShoeEnabled = b })
+	dustShoeCheck.Checked = s.DustShoeEnabled
+
+	dustShoeSection := widget.NewCard("Dust Shoe Collision Detection",
+		"Detect potential collisions between dust shoe and clamp/fixture zones",
+		container.NewGridWithColumns(2,
+			widget.NewLabel("Enable Collision Detection"), dustShoeCheck,
+			widget.NewLabel("Dust Shoe Width (mm)"), floatEntry(&s.DustShoeWidth),
+			widget.NewLabel("Minimum Clearance (mm)"), floatEntry(&s.DustShoeClearance),
+		),
+	)
+
 	return container.NewVScroll(container.NewVBox(
 		optimizerSection,
 		cncSection,
@@ -937,6 +952,7 @@ func (a *App) buildSettingsPanel() fyne.CanvasObject {
 		onionSkinSection,
 		stockTabSection,
 		clampZoneSection,
+		dustShoeSection,
 	))
 }
 
@@ -1209,9 +1225,35 @@ func (a *App) refreshResults() {
 	)
 	viewTabs.SetTabLocation(container.TabLocationBottom)
 
+	// Build collision warning banner if collisions were detected
+	var topItems []fyne.CanvasObject
+	topItems = append(topItems, toolbar, widget.NewSeparator())
+
+	if len(a.lastCollisions) > 0 {
+		warnings := gcode.FormatCollisionWarnings(a.lastCollisions)
+		collisionHeader := widget.NewLabel(fmt.Sprintf(
+			"DUST SHOE COLLISION WARNING: %d potential collision(s) detected", len(a.lastCollisions)))
+		collisionHeader.Importance = widget.DangerImportance
+		collisionHeader.TextStyle = fyne.TextStyle{Bold: true}
+		topItems = append(topItems, collisionHeader)
+
+		maxShow := 5
+		for i, w := range warnings {
+			if i >= maxShow {
+				topItems = append(topItems, widget.NewLabel(
+					fmt.Sprintf("... and %d more collision(s)", len(warnings)-maxShow)))
+				break
+			}
+			warnLabel := widget.NewLabel(w)
+			warnLabel.Importance = widget.WarningImportance
+			topItems = append(topItems, warnLabel)
+		}
+		topItems = append(topItems, widget.NewSeparator())
+	}
+
 	// Use Border layout: toolbar pinned at top, tabbed views fill remaining space
 	a.resultContainer.Add(container.NewBorder(
-		container.NewVBox(toolbar, widget.NewSeparator()),
+		container.NewVBox(topItems...),
 		nil, nil, nil,
 		viewTabs,
 	))
@@ -1422,7 +1464,29 @@ func (a *App) runOptimize() {
 	opt := engine.New(a.project.Settings)
 	result := opt.Optimize(a.project.Parts, a.project.Stocks)
 	a.project.Result = &result
+
+	// Run dust shoe collision detection after optimization
+	collisions := gcode.CheckDustShoeCollisions(result, a.project.Settings)
+	a.lastCollisions = collisions
+
 	a.refreshResults()
+
+	// Show collision warning dialog if collisions detected
+	if len(collisions) > 0 {
+		warnings := gcode.FormatCollisionWarnings(collisions)
+		var msg strings.Builder
+		msg.WriteString(fmt.Sprintf("WARNING: %d potential dust shoe collision(s) detected!\n\n", len(collisions)))
+		maxShow := 5
+		for i, w := range warnings {
+			if i >= maxShow {
+				msg.WriteString(fmt.Sprintf("\n... and %d more collision(s)", len(warnings)-maxShow))
+				break
+			}
+			msg.WriteString(w + "\n")
+		}
+		msg.WriteString("\nConsider moving clamps or adjusting part positions.")
+		dialog.ShowInformation("Dust Shoe Collision Warning", msg.String(), a.window)
+	}
 }
 
 func (a *App) saveProject() {

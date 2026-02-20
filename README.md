@@ -15,6 +15,7 @@ A cross-platform desktop application for optimizing rectangular cut lists and ge
 - **Multiple Stock Sizes** — Use different stock sheet sizes in one run with smart selection (trial-packing heuristic)
 - **Multi-Material Optimization** — Assign material types (e.g., Plywood, MDF) to parts and stock sheets; optimizer groups by material so parts are only placed on matching stocks
 - **Fixture / Clamp Zones** — Define rectangular exclusion zones for clamps and fixtures; optimizer avoids placing parts in these areas
+- **Dust Shoe Collision Detection** — Automatically checks for collisions between the dust shoe and clamp/fixture zones after optimization; warns before generating GCode
 
 ### CNC & GCode
 - **GCode Export** — Full CNC toolpath generation with:
