@@ -886,6 +886,7 @@ func (a *App) buildSettingsPanel() fyne.CanvasObject {
 		widget.NewLabel("Kerf / Blade Width (mm)"), floatEntry(&s.KerfWidth),
 		widget.NewLabel("Edge Trim (mm)"), floatEntry(&s.EdgeTrim),
 		widget.NewLabel("Guillotine Cuts Only"), widget.NewCheck("", func(b bool) { s.GuillotineOnly = b }),
+		widget.NewLabel("Nesting Rotations (outline parts)"), intEntry(&s.NestingRotations),
 	))
 
 	optimizeToolpathCheck := widget.NewCheck("", func(b bool) { s.OptimizeToolpath = b })

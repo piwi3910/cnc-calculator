@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"math"
 	"sort"
 
 	"github.com/piwi3910/SlabCut/internal/model"
@@ -158,6 +159,68 @@ func addCutoutFreeRects(packer *guillotinePacker, part model.Part, partX, partY 
 	}
 }
 
+// tryOutlineRotations attempts to place an outline part at multiple rotation angles.
+// It rotates the outline, computes the new bounding box, and tries to insert it.
+// The rotation that uses the smallest bounding box area is tried first.
+// Returns true if the part was placed.
+func (o *Optimizer) tryOutlineRotations(packer *guillotinePacker, sheet *model.SheetResult, part model.Part, numRotations int) bool {
+	if numRotations < 1 {
+		numRotations = 2
+	}
+
+	type rotationCandidate struct {
+		angle   float64
+		outline model.Outline
+		width   float64
+		height  float64
+		area    float64
+	}
+
+	var candidates []rotationCandidate
+	angleStep := math.Pi / float64(numRotations)
+
+	for i := 0; i < numRotations; i++ {
+		angle := float64(i) * angleStep
+		rotated := part.Outline.Rotate(angle)
+		min, max := rotated.BoundingBox()
+		w := max.X - min.X
+		h := max.Y - min.Y
+		if w > 0 && h > 0 {
+			candidates = append(candidates, rotationCandidate{
+				angle:   angle,
+				outline: rotated,
+				width:   w,
+				height:  h,
+				area:    w * h,
+			})
+		}
+	}
+
+	// Sort by bounding box area ascending (tightest fit first)
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].area < candidates[j].area
+	})
+
+	for _, c := range candidates {
+		if ok, x, y := packer.insert(c.width, c.height); ok {
+			// Create a copy of the part with the rotated outline and updated dimensions
+			placedPart := part
+			placedPart.Outline = c.outline
+			placedPart.Width = c.width
+			placedPart.Height = c.height
+
+			sheet.Placements = append(sheet.Placements, model.Placement{
+				Part:    placedPart,
+				X:       x,
+				Y:       y,
+				Rotated: false, // Rotation is baked into the outline
+			})
+			return true
+		}
+	}
+	return false
+}
+
 // optimizeGuillotine uses a guillotine-based shelf algorithm with best-fit decreasing heuristic.
 func (o *Optimizer) optimizeGuillotine(parts []model.Part, stocks []model.StockSheet) model.OptimizeResult {
 	// Expand parts by quantity into individual placement candidates
@@ -223,33 +286,40 @@ func (o *Optimizer) optimizeGuillotine(parts []model.Part, stocks []model.StockS
 			// Check grain compatibility between part and stock sheet
 			canNormal, canRotated := model.CanPlaceWithGrain(part.Grain, stock.Grain)
 
-			// Try original orientation
-			if canNormal {
-				if ok, x, y := packer.insert(part.Width, part.Height); ok {
-					sheet.Placements = append(sheet.Placements, model.Placement{
-						Part:    part,
-						X:       x,
-						Y:       y,
-						Rotated: false,
-					})
-					placed = true
-					placedX, placedY = x, y
-					placedRotated = false
-				}
+			// For outline parts with NestingRotations > 2, try multiple angles
+			if len(part.Outline) > 0 && o.Settings.NestingRotations > 2 && part.Grain == model.GrainNone {
+				placed = o.tryOutlineRotations(packer, &sheet, part, o.Settings.NestingRotations)
 			}
 
-			// Try rotated (if grain allows)
-			if !placed && canRotated {
-				if ok, x, y := packer.insert(part.Height, part.Width); ok {
-					sheet.Placements = append(sheet.Placements, model.Placement{
-						Part:    part,
-						X:       x,
-						Y:       y,
-						Rotated: true,
-					})
-					placed = true
-					placedX, placedY = x, y
-					placedRotated = true
+			if !placed {
+				// Try original orientation
+				if canNormal {
+					if ok, x, y := packer.insert(part.Width, part.Height); ok {
+						sheet.Placements = append(sheet.Placements, model.Placement{
+							Part:    part,
+							X:       x,
+							Y:       y,
+							Rotated: false,
+						})
+						placed = true
+						placedX, placedY = x, y
+						placedRotated = false
+					}
+				}
+
+				// Try rotated (if grain allows)
+				if !placed && canRotated {
+					if ok, x, y := packer.insert(part.Height, part.Width); ok {
+						sheet.Placements = append(sheet.Placements, model.Placement{
+							Part:    part,
+							X:       x,
+							Y:       y,
+							Rotated: true,
+						})
+						placed = true
+						placedX, placedY = x, y
+						placedRotated = true
+					}
 				}
 			}
 

@@ -18,6 +18,7 @@ A cross-platform desktop application for optimizing rectangular cut lists and ge
 - **Fixture / Clamp Zones** — Define rectangular exclusion zones for clamps and fixtures; optimizer avoids placing parts in these areas
 - **Dust Shoe Collision Detection** — Automatically checks for collisions between the dust shoe and clamp/fixture zones after optimization; warns before generating GCode
 - **Multi-Objective Optimization** — Weight priorities for minimize waste, minimize sheets, minimize cut length, and minimize job time; genetic algorithm uses weighted multi-objective fitness scoring
+- **Non-Rectangular Nesting** — Outline parts can be rotated at multiple angles (configurable: 2/4/8+ rotations) to find tighter bounding-box fits; includes polygon overlap detection, area calculation, and point-in-polygon testing
 
 ### CNC & GCode
 - **GCode Export** — Full CNC toolpath generation with:

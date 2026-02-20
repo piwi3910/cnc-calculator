@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"math"
 	"testing"
 
 	"github.com/piwi3910/SlabCut/internal/model"
@@ -977,4 +978,143 @@ func TestMultiObjective_WeightsInDefaultSettings(t *testing.T) {
 	assert.Equal(t, 0.5, s.OptimizeWeights.MinimizeSheets)
 	assert.Equal(t, 0.0, s.OptimizeWeights.MinimizeCutLen)
 	assert.Equal(t, 0.0, s.OptimizeWeights.MinimizeJobTime)
+}
+
+// --- Non-Rectangular Nesting Tests ---
+
+func TestOutlineRotate_90Degrees(t *testing.T) {
+	// Rectangle 100x50 rotated 90 degrees should become ~50x100
+	outline := model.Outline{
+		{X: 0, Y: 0}, {X: 100, Y: 0}, {X: 100, Y: 50}, {X: 0, Y: 50},
+	}
+	rotated := outline.Rotate(math.Pi / 2)
+	min, max := rotated.BoundingBox()
+	w := max.X - min.X
+	h := max.Y - min.Y
+	assert.InDelta(t, 50.0, w, 0.5)
+	assert.InDelta(t, 100.0, h, 0.5)
+}
+
+func TestOutlineRotate_0Degrees(t *testing.T) {
+	outline := model.Outline{
+		{X: 0, Y: 0}, {X: 100, Y: 0}, {X: 100, Y: 50}, {X: 0, Y: 50},
+	}
+	rotated := outline.Rotate(0)
+	min, max := rotated.BoundingBox()
+	assert.InDelta(t, 100.0, max.X-min.X, 0.01)
+	assert.InDelta(t, 50.0, max.Y-min.Y, 0.01)
+}
+
+func TestOutlineArea_Rectangle(t *testing.T) {
+	outline := model.Outline{
+		{X: 0, Y: 0}, {X: 100, Y: 0}, {X: 100, Y: 50}, {X: 0, Y: 50},
+	}
+	assert.InDelta(t, 5000.0, outline.Area(), 0.01)
+}
+
+func TestOutlineArea_Triangle(t *testing.T) {
+	outline := model.Outline{
+		{X: 0, Y: 0}, {X: 100, Y: 0}, {X: 50, Y: 50},
+	}
+	assert.InDelta(t, 2500.0, outline.Area(), 0.01)
+}
+
+func TestOutlineArea_Empty(t *testing.T) {
+	var empty model.Outline
+	assert.Equal(t, 0.0, empty.Area())
+}
+
+func TestOutlineContainsPoint(t *testing.T) {
+	square := model.Outline{
+		{X: 0, Y: 0}, {X: 100, Y: 0}, {X: 100, Y: 100}, {X: 0, Y: 100},
+	}
+	assert.True(t, square.ContainsPoint(50, 50))
+	assert.False(t, square.ContainsPoint(150, 50))
+	assert.False(t, square.ContainsPoint(-10, 50))
+}
+
+func TestOutlinesOverlap_Overlapping(t *testing.T) {
+	sq1 := model.Outline{
+		{X: 0, Y: 0}, {X: 50, Y: 0}, {X: 50, Y: 50}, {X: 0, Y: 50},
+	}
+	sq2 := model.Outline{
+		{X: 0, Y: 0}, {X: 50, Y: 0}, {X: 50, Y: 50}, {X: 0, Y: 50},
+	}
+	// Placed at overlapping positions
+	assert.True(t, model.OutlinesOverlap(sq1, 0, 0, sq2, 25, 25))
+}
+
+func TestOutlinesOverlap_NotOverlapping(t *testing.T) {
+	sq1 := model.Outline{
+		{X: 0, Y: 0}, {X: 50, Y: 0}, {X: 50, Y: 50}, {X: 0, Y: 50},
+	}
+	sq2 := model.Outline{
+		{X: 0, Y: 0}, {X: 50, Y: 0}, {X: 50, Y: 50}, {X: 0, Y: 50},
+	}
+	// Placed far apart
+	assert.False(t, model.OutlinesOverlap(sq1, 0, 0, sq2, 100, 0))
+}
+
+func TestOutlinesOverlap_Containment(t *testing.T) {
+	big := model.Outline{
+		{X: 0, Y: 0}, {X: 200, Y: 0}, {X: 200, Y: 200}, {X: 0, Y: 200},
+	}
+	small := model.Outline{
+		{X: 0, Y: 0}, {X: 20, Y: 0}, {X: 20, Y: 20}, {X: 0, Y: 20},
+	}
+	// small is inside big
+	assert.True(t, model.OutlinesOverlap(big, 0, 0, small, 50, 50))
+}
+
+func TestOptimize_NestingRotations_Default(t *testing.T) {
+	s := model.DefaultSettings()
+	assert.Equal(t, 2, s.NestingRotations)
+}
+
+func TestOptimize_OutlinePartMultipleRotations(t *testing.T) {
+	s := defaultTestSettings()
+	s.NestingRotations = 4 // Try 0, 45, 90, 135 degrees
+
+	// An L-shaped outline part that might fit better at certain angles
+	parts := []model.Part{
+		{
+			ID: "p1", Label: "L-Shape", Width: 150, Height: 100, Quantity: 1,
+			Outline: model.Outline{
+				{X: 0, Y: 0}, {X: 100, Y: 0}, {X: 100, Y: 50},
+				{X: 50, Y: 50}, {X: 50, Y: 100}, {X: 0, Y: 100},
+			},
+			Grain: model.GrainNone,
+		},
+	}
+	stocks := []model.StockSheet{
+		{ID: "s1", Label: "Sheet", Width: 500, Height: 500, Quantity: 1},
+	}
+
+	opt := New(s)
+	result := opt.Optimize(parts, stocks)
+	assert.Len(t, result.UnplacedParts, 0, "outline part should be placed")
+	assert.Len(t, result.Sheets, 1)
+}
+
+func TestOptimize_OutlinePartWithGrainSkipsMultiRotation(t *testing.T) {
+	s := defaultTestSettings()
+	s.NestingRotations = 8
+
+	// Part with grain should NOT use multi-rotation (grain takes priority)
+	parts := []model.Part{
+		{
+			ID: "p1", Label: "GrainPart", Width: 100, Height: 50, Quantity: 1,
+			Outline: model.Outline{
+				{X: 0, Y: 0}, {X: 100, Y: 0}, {X: 100, Y: 50}, {X: 0, Y: 50},
+			},
+			Grain: model.GrainHorizontal,
+		},
+	}
+	stocks := []model.StockSheet{
+		{ID: "s1", Label: "Sheet", Width: 500, Height: 500, Quantity: 1, Grain: model.GrainHorizontal},
+	}
+
+	opt := New(s)
+	result := opt.Optimize(parts, stocks)
+	assert.Len(t, result.UnplacedParts, 0, "grain part should be placed via normal path")
 }

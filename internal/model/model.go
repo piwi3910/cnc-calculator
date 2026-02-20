@@ -161,6 +161,160 @@ func (o Outline) Perimeter() float64 {
 	return total
 }
 
+// Rotate returns a new outline rotated by the given angle (in radians) around
+// the centroid. The result is then translated so the bounding box origin is at (0,0).
+func (o Outline) Rotate(radians float64) Outline {
+	if len(o) == 0 || radians == 0 {
+		return o
+	}
+
+	// Find centroid
+	var cx, cy float64
+	for _, p := range o {
+		cx += p.X
+		cy += p.Y
+	}
+	cx /= float64(len(o))
+	cy /= float64(len(o))
+
+	cos := math.Cos(radians)
+	sin := math.Sin(radians)
+
+	rotated := make(Outline, len(o))
+	for i, p := range o {
+		dx := p.X - cx
+		dy := p.Y - cy
+		rotated[i] = Point2D{
+			X: cx + dx*cos - dy*sin,
+			Y: cy + dx*sin + dy*cos,
+		}
+	}
+
+	// Translate so bounding box starts at (0,0)
+	min, _ := rotated.BoundingBox()
+	for i := range rotated {
+		rotated[i].X -= min.X
+		rotated[i].Y -= min.Y
+	}
+
+	return rotated
+}
+
+// Area returns the area of the polygon using the shoelace formula.
+// Returns the absolute area (always positive).
+func (o Outline) Area() float64 {
+	n := len(o)
+	if n < 3 {
+		return 0
+	}
+	var sum float64
+	for i := 0; i < n; i++ {
+		j := (i + 1) % n
+		sum += o[i].X*o[j].Y - o[j].X*o[i].Y
+	}
+	return math.Abs(sum) / 2.0
+}
+
+// ContainsPoint returns true if point (px,py) is inside the polygon
+// using the ray-casting algorithm.
+func (o Outline) ContainsPoint(px, py float64) bool {
+	n := len(o)
+	if n < 3 {
+		return false
+	}
+	inside := false
+	j := n - 1
+	for i := 0; i < n; i++ {
+		yi := o[i].Y
+		yj := o[j].Y
+		if (yi > py) != (yj > py) {
+			xi := o[i].X
+			xj := o[j].X
+			xIntersect := xi + (py-yi)/(yj-yi)*(xj-xi)
+			if px < xIntersect {
+				inside = !inside
+			}
+		}
+		j = i
+	}
+	return inside
+}
+
+// segmentsIntersect returns true if line segment (a1,a2)-(b1,b2) intersects (c1,c2)-(d1,d2).
+func segmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy float64) bool {
+	d1 := crossProduct(cx, cy, dx, dy, ax, ay)
+	d2 := crossProduct(cx, cy, dx, dy, bx, by)
+	d3 := crossProduct(ax, ay, bx, by, cx, cy)
+	d4 := crossProduct(ax, ay, bx, by, dx, dy)
+
+	if ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+		((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0)) {
+		return true
+	}
+
+	// Check collinear cases
+	if d1 == 0 && onSegment(cx, cy, dx, dy, ax, ay) {
+		return true
+	}
+	if d2 == 0 && onSegment(cx, cy, dx, dy, bx, by) {
+		return true
+	}
+	if d3 == 0 && onSegment(ax, ay, bx, by, cx, cy) {
+		return true
+	}
+	if d4 == 0 && onSegment(ax, ay, bx, by, dx, dy) {
+		return true
+	}
+	return false
+}
+
+func crossProduct(ox, oy, ax, ay, bx, by float64) float64 {
+	return (ax-ox)*(by-oy) - (ay-oy)*(bx-ox)
+}
+
+func onSegment(px, py, qx, qy, rx, ry float64) bool {
+	return math.Min(px, qx) <= rx && rx <= math.Max(px, qx) &&
+		math.Min(py, qy) <= ry && ry <= math.Max(py, qy)
+}
+
+// OutlinesOverlap checks whether two outlines (translated to their placement
+// positions) overlap. It uses edge intersection and point-in-polygon tests.
+func OutlinesOverlap(a Outline, ax, ay float64, b Outline, bx, by float64) bool {
+	if len(a) < 3 || len(b) < 3 {
+		return false
+	}
+
+	// Translate outlines to absolute positions
+	absA := a.Translate(ax, ay)
+	absB := b.Translate(bx, by)
+
+	// Check if any edges intersect
+	na := len(absA)
+	nb := len(absB)
+	for i := 0; i < na; i++ {
+		ni := (i + 1) % na
+		for j := 0; j < nb; j++ {
+			nj := (j + 1) % nb
+			if segmentsIntersect(
+				absA[i].X, absA[i].Y, absA[ni].X, absA[ni].Y,
+				absB[j].X, absB[j].Y, absB[nj].X, absB[nj].Y,
+			) {
+				return true
+			}
+		}
+	}
+
+	// Check containment: a point of A inside B or vice versa
+	if absB.ContainsPoint(absA[0].X, absA[0].Y) {
+		return true
+	}
+	if absA.ContainsPoint(absB[0].X, absB[0].Y) {
+		return true
+	}
+
+	return false
+}
+
 // EdgeBanding flags which edges of a part need edge banding applied.
 type EdgeBanding struct {
 	Top    bool `json:"top"`    // Banding on the top edge (width side)
@@ -405,6 +559,10 @@ type CutSettings struct {
 
 	// Structural integrity cut ordering (interior cuts first, perimeter last)
 	StructuralOrdering bool `json:"structural_ordering"` // Order cuts from center outward for structural integrity
+
+	// Non-rectangular nesting: number of rotation angles to try for outline parts
+	// 2 = 0° and 90° (default), 4 = every 45°, 8 = every 22.5°, etc.
+	NestingRotations int `json:"nesting_rotations"` // Number of rotation angles for outline parts (default 2)
 
 	// Fixture/clamp exclusion zones
 	ClampZones []ClampZone `json:"clamp_zones,omitempty"` // Clamp/fixture zones to exclude from optimization
@@ -755,6 +913,7 @@ func DefaultSettings() CutSettings {
 		DustShoeWidth:     80.0,   // 80mm default dust shoe diameter
 		DustShoeClearance: 5.0,    // 5mm minimum clearance
 		OptimizeWeights:   DefaultOptimizeWeights(),
+		NestingRotations:  2, // Default: 0° and 90° (standard rectangular behavior)
 	}
 }
 
