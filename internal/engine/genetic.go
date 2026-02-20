@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"math"
 	"math/rand"
 	"sort"
 
@@ -163,8 +164,9 @@ func (g *geneticOptimizer) createGreedyChromosome() chromosome {
 	return chromosome{genes: genes}
 }
 
-// evaluate computes the fitness of a chromosome by decoding it into a packing
-// and measuring material efficiency.
+// evaluate computes the fitness of a chromosome using multi-objective weighted
+// scoring. Each objective produces a normalized score in [0,1], and the final
+// fitness is the weighted sum minus penalties for unplaced parts.
 func (g *geneticOptimizer) evaluate(c chromosome) float64 {
 	result := g.decode(c)
 
@@ -182,14 +184,48 @@ func (g *geneticOptimizer) evaluate(c chromosome) float64 {
 		return 0
 	}
 
+	w := g.settings.OptimizeWeights.Normalize()
+
+	// Objective 1: Material efficiency (1 = perfect usage, 0 = all waste)
 	efficiency := usedArea / totalArea
 
-	// Penalize unplaced parts heavily
-	unplacedPenalty := float64(len(result.UnplacedParts)) * 0.1
-	// Penalize using more sheets
-	sheetPenalty := float64(len(result.Sheets)-1) * 0.05
+	// Objective 2: Minimize sheets (score decreases as sheets increase)
+	// Score: 1/numSheets — 1 sheet = 1.0, 2 sheets = 0.5, etc.
+	sheetScore := 1.0 / float64(len(result.Sheets))
 
-	fitness := efficiency - unplacedPenalty - sheetPenalty
+	// Objective 3: Minimize cut length
+	// Normalize by total part area perimeter estimate: sqrt(totalArea)*4
+	// Lower cut length = higher score
+	cutLen := result.TotalCutLength()
+	maxCutEstimate := math.Sqrt(totalArea) * 4.0 * float64(len(result.Sheets))
+	cutLenScore := 0.0
+	if maxCutEstimate > 0 {
+		cutLenScore = 1.0 - math.Min(cutLen/maxCutEstimate, 1.0)
+	}
+
+	// Objective 4: Minimize job time
+	// Uses cut length * passes as a proxy, normalized similarly
+	numPasses := 1.0
+	if g.settings.PassDepth > 0 && g.settings.CutDepth > 0 {
+		numPasses = math.Ceil(g.settings.CutDepth / g.settings.PassDepth)
+	}
+	totalCutWork := cutLen * numPasses
+	maxWorkEstimate := maxCutEstimate * numPasses
+	jobTimeScore := 0.0
+	if maxWorkEstimate > 0 {
+		jobTimeScore = 1.0 - math.Min(totalCutWork/maxWorkEstimate, 1.0)
+	}
+
+	// Weighted combination
+	fitness := w.MinimizeWaste*efficiency +
+		w.MinimizeSheets*sheetScore +
+		w.MinimizeCutLen*cutLenScore +
+		w.MinimizeJobTime*jobTimeScore
+
+	// Penalize unplaced parts heavily (always, regardless of weights)
+	unplacedPenalty := float64(len(result.UnplacedParts)) * 0.2
+	fitness -= unplacedPenalty
+
 	if fitness < 0 {
 		fitness = 0
 	}

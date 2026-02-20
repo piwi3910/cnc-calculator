@@ -802,3 +802,179 @@ func TestOptimize_CutoutNesting_MultipleSmallParts(t *testing.T) {
 	require.Len(t, result.Sheets, 1)
 	assert.Len(t, result.Sheets[0].Placements, 3, "all three parts should be on same sheet")
 }
+
+// --- Multi-Objective Optimization Tests ---
+
+func TestMultiObjective_DefaultWeights(t *testing.T) {
+	w := model.DefaultOptimizeWeights()
+	assert.Equal(t, 1.0, w.MinimizeWaste)
+	assert.Equal(t, 0.5, w.MinimizeSheets)
+	assert.Equal(t, 0.0, w.MinimizeCutLen)
+	assert.Equal(t, 0.0, w.MinimizeJobTime)
+}
+
+func TestMultiObjective_NormalizeWeights(t *testing.T) {
+	w := model.OptimizeWeights{
+		MinimizeWaste:  2.0,
+		MinimizeSheets: 2.0,
+		MinimizeCutLen: 0.0,
+		MinimizeJobTime: 0.0,
+	}
+	n := w.Normalize()
+	assert.InDelta(t, 0.5, n.MinimizeWaste, 0.001)
+	assert.InDelta(t, 0.5, n.MinimizeSheets, 0.001)
+	assert.InDelta(t, 0.0, n.MinimizeCutLen, 0.001)
+	assert.InDelta(t, 0.0, n.MinimizeJobTime, 0.001)
+}
+
+func TestMultiObjective_NormalizeAllZero(t *testing.T) {
+	w := model.OptimizeWeights{}
+	n := w.Normalize()
+	// Should fall back to equal waste/sheets weights
+	assert.InDelta(t, 0.5, n.MinimizeWaste, 0.001)
+	assert.InDelta(t, 0.5, n.MinimizeSheets, 0.001)
+}
+
+func TestMultiObjective_GeneticWithWasteWeight(t *testing.T) {
+	s := defaultTestSettings()
+	s.Algorithm = model.AlgorithmGenetic
+	s.OptimizeWeights = model.OptimizeWeights{
+		MinimizeWaste:  1.0,
+		MinimizeSheets: 0.0,
+		MinimizeCutLen: 0.0,
+		MinimizeJobTime: 0.0,
+	}
+
+	parts := []model.Part{
+		{ID: "p1", Label: "A", Width: 200, Height: 200, Quantity: 2},
+	}
+	stocks := []model.StockSheet{
+		{ID: "s1", Label: "Sheet", Width: 500, Height: 500, Quantity: 5},
+	}
+
+	opt := New(s)
+	result := opt.Optimize(parts, stocks)
+	assert.Len(t, result.UnplacedParts, 0)
+	assert.Greater(t, len(result.Sheets), 0)
+}
+
+func TestMultiObjective_GeneticWithSheetWeight(t *testing.T) {
+	s := defaultTestSettings()
+	s.Algorithm = model.AlgorithmGenetic
+	s.OptimizeWeights = model.OptimizeWeights{
+		MinimizeWaste:  0.0,
+		MinimizeSheets: 1.0,
+		MinimizeCutLen: 0.0,
+		MinimizeJobTime: 0.0,
+	}
+
+	parts := []model.Part{
+		{ID: "p1", Label: "A", Width: 100, Height: 100, Quantity: 4},
+	}
+	stocks := []model.StockSheet{
+		{ID: "s1", Label: "Sheet", Width: 500, Height: 500, Quantity: 5},
+	}
+
+	opt := New(s)
+	result := opt.Optimize(parts, stocks)
+	assert.Len(t, result.UnplacedParts, 0)
+	// With heavy sheet minimization weight, should use minimal sheets
+	assert.Equal(t, 1, len(result.Sheets))
+}
+
+func TestMultiObjective_TotalCutLength(t *testing.T) {
+	result := model.OptimizeResult{
+		Sheets: []model.SheetResult{
+			{
+				Stock: model.StockSheet{Width: 500, Height: 500},
+				Placements: []model.Placement{
+					{Part: model.Part{Width: 100, Height: 50}, X: 0, Y: 0},
+					{Part: model.Part{Width: 200, Height: 100}, X: 110, Y: 0},
+				},
+			},
+		},
+	}
+
+	cutLen := result.TotalCutLength()
+	// Part 1: 2*(100+50) = 300, Part 2: 2*(200+100) = 600 => total 900
+	assert.InDelta(t, 900.0, cutLen, 0.01)
+}
+
+func TestMultiObjective_TotalCutLengthWithOutline(t *testing.T) {
+	result := model.OptimizeResult{
+		Sheets: []model.SheetResult{
+			{
+				Stock: model.StockSheet{Width: 500, Height: 500},
+				Placements: []model.Placement{
+					{Part: model.Part{
+						Width: 100, Height: 100,
+						Outline: model.Outline{
+							{X: 0, Y: 0}, {X: 100, Y: 0}, {X: 100, Y: 100}, {X: 0, Y: 100},
+						},
+					}, X: 0, Y: 0},
+				},
+			},
+		},
+	}
+
+	cutLen := result.TotalCutLength()
+	// Square outline: 4 * 100 = 400
+	assert.InDelta(t, 400.0, cutLen, 0.01)
+}
+
+func TestMultiObjective_EstimatedJobTime(t *testing.T) {
+	result := model.OptimizeResult{
+		Sheets: []model.SheetResult{
+			{
+				Stock: model.StockSheet{Width: 500, Height: 500},
+				Placements: []model.Placement{
+					{Part: model.Part{Width: 100, Height: 50}, X: 0, Y: 0},
+				},
+			},
+		},
+	}
+
+	// Cut length = 2*(100+50) = 300mm, feedRate = 1000mm/min, 1 pass, 2 min setup
+	time := result.EstimatedJobTime(1000.0, 6.0, 6.0, 2.0)
+	// 300/1000 = 0.3 min cutting + 2.0 setup = 2.3 min
+	assert.InDelta(t, 2.3, time, 0.01)
+}
+
+func TestMultiObjective_EstimatedJobTimeMultiplePasses(t *testing.T) {
+	result := model.OptimizeResult{
+		Sheets: []model.SheetResult{
+			{
+				Stock: model.StockSheet{Width: 500, Height: 500},
+				Placements: []model.Placement{
+					{Part: model.Part{Width: 100, Height: 50}, X: 0, Y: 0},
+				},
+			},
+		},
+	}
+
+	// Cut length = 300mm, feedRate = 1000, 3 passes (18mm depth / 6mm pass), 0 setup
+	time := result.EstimatedJobTime(1000.0, 6.0, 18.0, 0.0)
+	// 300 * 3 / 1000 = 0.9 min
+	assert.InDelta(t, 0.9, time, 0.01)
+}
+
+func TestMultiObjective_OutlinePerimeter(t *testing.T) {
+	// Triangle: (0,0), (3,0), (0,4) — sides: 3, 5, 4 = 12
+	outline := model.Outline{
+		{X: 0, Y: 0}, {X: 3, Y: 0}, {X: 0, Y: 4},
+	}
+	assert.InDelta(t, 12.0, outline.Perimeter(), 0.01)
+}
+
+func TestMultiObjective_OutlinePerimeterEmpty(t *testing.T) {
+	var empty model.Outline
+	assert.Equal(t, 0.0, empty.Perimeter())
+}
+
+func TestMultiObjective_WeightsInDefaultSettings(t *testing.T) {
+	s := model.DefaultSettings()
+	assert.Equal(t, 1.0, s.OptimizeWeights.MinimizeWaste)
+	assert.Equal(t, 0.5, s.OptimizeWeights.MinimizeSheets)
+	assert.Equal(t, 0.0, s.OptimizeWeights.MinimizeCutLen)
+	assert.Equal(t, 0.0, s.OptimizeWeights.MinimizeJobTime)
+}
