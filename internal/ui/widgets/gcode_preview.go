@@ -133,8 +133,10 @@ func (gp *GCodePreview) CreateRenderer() fyne.WidgetRenderer {
 }
 
 type gcodePreviewRenderer struct {
-	gp      *GCodePreview
-	objects []fyne.CanvasObject
+	gp               *GCodePreview
+	objects          []fyne.CanvasObject
+	lastVisibleMoves int
+	built            bool
 }
 
 func newGCodePreviewRenderer(gp *GCodePreview) *gcodePreviewRenderer {
@@ -147,6 +149,10 @@ func (r *gcodePreviewRenderer) rebuild() {
 	r.objects = nil
 
 	gp := r.gp
+	gp.mu.Lock()
+	r.lastVisibleMoves = gp.visibleMoves
+	r.built = true
+	gp.mu.Unlock()
 	stockW := float32(gp.sheetW)
 	stockH := float32(gp.sheetH)
 
@@ -442,8 +448,16 @@ func (r *gcodePreviewRenderer) drawTabMarkers(scale, offsetX, offsetY float32) {
 	}
 }
 
-func (r *gcodePreviewRenderer) Layout(size fyne.Size)        {}
-func (r *gcodePreviewRenderer) Refresh()                     { r.rebuild() }
+func (r *gcodePreviewRenderer) Layout(size fyne.Size) {}
+func (r *gcodePreviewRenderer) Refresh() {
+	r.gp.mu.Lock()
+	vm := r.gp.visibleMoves
+	r.gp.mu.Unlock()
+	if r.built && vm == r.lastVisibleMoves {
+		return
+	}
+	r.rebuild()
+}
 func (r *gcodePreviewRenderer) Destroy()                     {}
 func (r *gcodePreviewRenderer) Objects() []fyne.CanvasObject { return r.objects }
 

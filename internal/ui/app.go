@@ -167,9 +167,6 @@ func (a *App) SetupMenus() {
 		fyne.NewMenuItem("Export PDF...", func() {
 			a.exportPDF()
 		}),
-		fyne.NewMenuItem("Preview GCode...", func() {
-			a.previewGCode()
-		}),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Share Project...", func() {
 			a.shareProject()
@@ -1225,9 +1222,6 @@ func (a *App) refreshResults() {
 	}
 
 	// Action buttons toolbar
-	simulateBtn := widget.NewButtonWithIcon("Simulate GCode", theme.MediaPlayIcon(), func() {
-		a.previewGCode()
-	})
 	exportBtn := widget.NewButtonWithIcon("Export GCode", theme.DocumentSaveIcon(), func() {
 		a.exportGCode()
 	})
@@ -1237,37 +1231,10 @@ func (a *App) refreshResults() {
 	labelsBtn := widget.NewButtonWithIcon("Generate Labels", theme.ListIcon(), func() {
 		a.exportLabels()
 	})
-	toolbar := container.NewHBox(layout.NewSpacer(), saveOffcutsBtn, labelsBtn, simulateBtn, exportBtn)
+	toolbar := container.NewHBox(layout.NewSpacer(), saveOffcutsBtn, labelsBtn, exportBtn)
 
-	// Build both cut layout and inline simulation views
+	// Build cut layout view
 	sheetResults := widgets.RenderSheetResults(a.project.Result, a.project.Settings, a.project.Parts)
-
-	// Inline simulation viewport for the first sheet (most common use case)
-	gen := gcode.New(a.project.Settings)
-	var inlineSimItems []fyne.CanvasObject
-
-	legendLabel := widget.NewLabelWithStyle("Simulation Legend:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	legendText := widget.NewLabel("Green = Completed  |  Dim = Remaining  |  Red circle = Tool position")
-	inlineSimItems = append(inlineSimItems, container.NewHBox(legendLabel, legendText), widget.NewSeparator())
-
-	for i, sheet := range a.project.Result.Sheets {
-		gcodeStr := gen.GenerateSheet(sheet, i+1)
-		header := widget.NewLabelWithStyle(
-			fmt.Sprintf("Sheet %d: %s (%.0f x %.0f)",
-				i+1, sheet.Stock.Label, sheet.Stock.Width, sheet.Stock.Height),
-			fyne.TextAlignLeading, fyne.TextStyle{Bold: true},
-		)
-		simView := widgets.RenderGCodeSimulation(sheet, a.project.Settings, gcodeStr)
-		inlineSimItems = append(inlineSimItems, header, simView, widget.NewSeparator())
-	}
-	inlineSim := container.NewVScroll(container.NewVBox(inlineSimItems...))
-
-	// Create tabs for Cut Layout vs Simulation viewport
-	viewTabs := container.NewAppTabs(
-		container.NewTabItem("Cut Layout", sheetResults),
-		container.NewTabItem("Simulation", inlineSim),
-	)
-	viewTabs.SetTabLocation(container.TabLocationBottom)
 
 	// Build collision warning banner if collisions were detected
 	var topItems []fyne.CanvasObject
@@ -1295,52 +1262,13 @@ func (a *App) refreshResults() {
 		topItems = append(topItems, widget.NewSeparator())
 	}
 
-	// Use Border layout: toolbar pinned at top, tabbed views fill remaining space
+	// Use Border layout: toolbar pinned at top, results fill remaining space
 	a.resultContainer.Add(container.NewBorder(
 		container.NewVBox(topItems...),
 		nil, nil, nil,
-		viewTabs,
+		sheetResults,
 	))
 	a.resultContainer.Refresh()
-}
-
-func (a *App) previewGCode() {
-	if a.project.Result == nil || len(a.project.Result.Sheets) == 0 {
-		dialog.ShowInformation("No results", "Run the optimizer first before previewing GCode.", a.window)
-		return
-	}
-
-	gen := gcode.New(a.project.Settings)
-
-	var previewItems []fyne.CanvasObject
-
-	// Legend header
-	legendLabel := widget.NewLabelWithStyle("Legend:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	legendText := widget.NewRichTextFromMarkdown(
-		"**Green** = Completed cuts  |  **Dim blue** = Remaining cuts  |  **Red circle** = Tool position  |  **Orange** = Tab positions")
-	previewItems = append(previewItems, container.NewHBox(legendLabel, legendText), widget.NewSeparator())
-
-	for i, sheet := range a.project.Result.Sheets {
-		gcodeStr := gen.GenerateSheet(sheet, i+1)
-
-		header := widget.NewLabelWithStyle(
-			fmt.Sprintf("Sheet %d: %s (%.0f x %.0f) — Toolpath Simulation",
-				i+1, sheet.Stock.Label, sheet.Stock.Width, sheet.Stock.Height),
-			fyne.TextAlignLeading, fyne.TextStyle{Bold: true},
-		)
-
-		// Use simulation view with slider, play/pause, step, and speed controls
-		simView := widgets.RenderGCodeSimulation(sheet, a.project.Settings, gcodeStr)
-
-		previewItems = append(previewItems, header, simView, widget.NewSeparator())
-	}
-
-	content := container.NewVScroll(container.NewVBox(previewItems...))
-	content.SetMinSize(fyne.NewSize(750, 550))
-
-	d := dialog.NewCustom("GCode Toolpath Simulation", "Close", content, a.window)
-	d.Resize(fyne.NewSize(850, 650))
-	d.Show()
 }
 
 // showPurchasingCalculator displays a dialog that calculates how many sheets to purchase.
@@ -1519,11 +1447,11 @@ func (a *App) runOptimize() {
 	if len(collisions) > 0 {
 		warnings := gcode.FormatCollisionWarnings(collisions)
 		var msg strings.Builder
-		msg.WriteString(fmt.Sprintf("WARNING: %d potential dust shoe collision(s) detected!\n\n", len(collisions)))
+		fmt.Fprintf(&msg, "WARNING: %d potential dust shoe collision(s) detected!\n\n", len(collisions))
 		maxShow := 5
 		for i, w := range warnings {
 			if i >= maxShow {
-				msg.WriteString(fmt.Sprintf("\n... and %d more collision(s)", len(warnings)-maxShow))
+				fmt.Fprintf(&msg, "\n... and %d more collision(s)", len(warnings)-maxShow)
 				break
 			}
 			msg.WriteString(w + "\n")

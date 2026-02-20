@@ -2,6 +2,18 @@
 
 Project-specific instructions for SlabCut development.
 
+## CRITICAL: Never Discard User Files
+
+**NEVER run destructive git commands on uncommitted work without explicit user permission.** This includes:
+- `git checkout -- .` or `git checkout -- <file>`
+- `git restore .` or `git restore <file>`
+- `git reset --hard`
+- `git clean -f`
+- `git stash drop`
+- Any command that destroys uncommitted changes
+
+Unstaged changes may be manual edits by the user (linting fixes, refactoring, etc.). Always ask before discarding.
+
 ## Project Overview
 
 SlabCut is a cross-platform desktop CNC cut list optimizer built with Go and Fyne. It generates optimized 2D rectangular cutting layouts and exports GCode for CNC machines.

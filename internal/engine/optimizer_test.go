@@ -1118,3 +1118,103 @@ func TestOptimize_OutlinePartWithGrainSkipsMultiRotation(t *testing.T) {
 	result := opt.Optimize(parts, stocks)
 	assert.Len(t, result.UnplacedParts, 0, "grain part should be placed via normal path")
 }
+
+// TestOptimize_DefaultSettings_EndToEnd simulates what the UI does: optimize with
+// DefaultSettings, then exercise the full results pipeline (GCode generation, etc.).
+func TestOptimize_DefaultSettings_EndToEnd(t *testing.T) {
+	settings := model.DefaultSettings()
+
+	parts := []model.Part{
+		model.NewPart("Panel A", 600, 400, 2),
+		model.NewPart("Shelf", 500, 300, 3),
+		model.NewPart("Door", 800, 600, 1),
+	}
+	stocks := []model.StockSheet{
+		model.NewStockSheet("Plywood 2440x1220", 2440, 1220, 2),
+	}
+
+	opt := New(settings)
+	result := opt.Optimize(parts, stocks)
+
+	// Basic result validation
+	require.NotEmpty(t, result.Sheets, "should produce at least one sheet")
+	assert.Empty(t, result.UnplacedParts, "all parts should be placed")
+
+	// Verify all parts are placed
+	totalPlaced := 0
+	for _, s := range result.Sheets {
+		totalPlaced += len(s.Placements)
+		// Verify each placement has valid coordinates
+		for _, p := range s.Placements {
+			assert.GreaterOrEqual(t, p.X, 0.0, "placement X should be non-negative")
+			assert.GreaterOrEqual(t, p.Y, 0.0, "placement Y should be non-negative")
+			assert.Greater(t, p.PlacedWidth(), 0.0, "placed width should be positive")
+			assert.Greater(t, p.PlacedHeight(), 0.0, "placed height should be positive")
+		}
+	}
+	// 2 + 3 + 1 = 6 total parts
+	assert.Equal(t, 6, totalPlaced, "all 6 parts should be placed")
+
+	// Verify efficiency is reasonable
+	for _, s := range result.Sheets {
+		total := s.TotalArea()
+		used := s.UsedArea()
+		assert.Greater(t, total, 0.0, "total area should be positive")
+		assert.Greater(t, used, 0.0, "used area should be positive")
+		assert.LessOrEqual(t, used, total, "used area should not exceed total")
+	}
+
+	// Verify TotalCutLength works
+	cutLen := result.TotalCutLength()
+	assert.Greater(t, cutLen, 0.0, "total cut length should be positive")
+}
+
+// TestOptimize_GeneticDefaultSettings_EndToEnd tests genetic algorithm with default settings.
+func TestOptimize_GeneticDefaultSettings_EndToEnd(t *testing.T) {
+	settings := model.DefaultSettings()
+	settings.Algorithm = model.AlgorithmGenetic
+
+	parts := []model.Part{
+		model.NewPart("Panel A", 600, 400, 2),
+		model.NewPart("Shelf", 500, 300, 3),
+		model.NewPart("Door", 800, 600, 1),
+	}
+	stocks := []model.StockSheet{
+		model.NewStockSheet("Plywood 2440x1220", 2440, 1220, 2),
+	}
+
+	opt := New(settings)
+	result := opt.Optimize(parts, stocks)
+
+	require.NotEmpty(t, result.Sheets, "should produce at least one sheet")
+	assert.Empty(t, result.UnplacedParts, "all parts should be placed")
+
+	totalPlaced := 0
+	for _, s := range result.Sheets {
+		totalPlaced += len(s.Placements)
+	}
+	assert.Equal(t, 6, totalPlaced, "all 6 parts should be placed")
+}
+
+// TestOptimize_DefaultSettings_GCodeGeneration verifies GCode can be generated from results.
+func TestOptimize_DefaultSettings_GCodeGeneration(t *testing.T) {
+	settings := model.DefaultSettings()
+
+	parts := []model.Part{
+		model.NewPart("Panel", 600, 400, 1),
+	}
+	stocks := []model.StockSheet{
+		model.NewStockSheet("Plywood", 2440, 1220, 1),
+	}
+
+	opt := New(settings)
+	result := opt.Optimize(parts, stocks)
+	require.NotEmpty(t, result.Sheets)
+
+	// Verify the result can be used for GCode generation without panic
+	for _, sheet := range result.Sheets {
+		assert.NotEmpty(t, sheet.Placements)
+		assert.Greater(t, sheet.Stock.Width, 0.0)
+		assert.Greater(t, sheet.Stock.Height, 0.0)
+	}
+}

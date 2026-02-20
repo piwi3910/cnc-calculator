@@ -2,6 +2,7 @@ package widgets
 
 import (
 	"fmt"
+	"image"
 	"image/color"
 	"math"
 	"sync"
@@ -10,8 +11,6 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
-	"fyne.io/fyne/v2/layout"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/piwi3910/SlabCut/internal/model"
@@ -168,6 +167,11 @@ func (sc *SheetCanvas) CreateRenderer() fyne.WidgetRenderer {
 type sheetCanvasRenderer struct {
 	sc      *SheetCanvas
 	objects []fyne.CanvasObject
+	// Cache state to avoid unnecessary rebuilds
+	lastZoom float64
+	lastPanX float64
+	lastPanY float64
+	built    bool
 }
 
 func newSheetCanvasRenderer(sc *SheetCanvas) *sheetCanvasRenderer {
@@ -195,6 +199,10 @@ func (r *sheetCanvasRenderer) rebuild() {
 	zoom := float32(r.sc.zoom)
 	panX := float32(r.sc.panX)
 	panY := float32(r.sc.panY)
+	r.lastZoom = r.sc.zoom
+	r.lastPanX = r.sc.panX
+	r.lastPanY = r.sc.panY
+	r.built = true
 	r.sc.mu.Unlock()
 
 	scale := baseScale * zoom
@@ -377,16 +385,102 @@ func (r *sheetCanvasRenderer) drawClampZones(scale, panX, panY float32) {
 	}
 }
 
-func (r *sheetCanvasRenderer) Layout(size fyne.Size)        {}
-func (r *sheetCanvasRenderer) Refresh()                     { r.rebuild() }
+func (r *sheetCanvasRenderer) Layout(size fyne.Size) {}
+func (r *sheetCanvasRenderer) Refresh() {
+	r.sc.mu.Lock()
+	z, px, py := r.sc.zoom, r.sc.panX, r.sc.panY
+	r.sc.mu.Unlock()
+	// Only rebuild when zoom/pan actually changed
+	if r.built && z == r.lastZoom && px == r.lastPanX && py == r.lastPanY {
+		return
+	}
+	r.rebuild()
+}
 func (r *sheetCanvasRenderer) Destroy()                     {}
 func (r *sheetCanvasRenderer) Objects() []fyne.CanvasObject { return r.objects }
 func (r *sheetCanvasRenderer) MinSize() fyne.Size {
 	return fyne.NewSize(r.sc.maxWidth, r.sc.maxHeight)
 }
 
+// renderSheetToImage renders a sheet layout to a static Go image.
+func renderSheetToImage(sheet model.SheetResult, settings model.CutSettings, maxW, maxH int) image.Image {
+	stockW := sheet.Stock.Width
+	stockH := sheet.Stock.Height
+
+	scaleX := float64(maxW) / stockW
+	scaleY := float64(maxH) / stockH
+	scale := math.Min(scaleX, scaleY)
+
+	imgW := int(stockW*scale) + 2
+	imgH := int(stockH*scale) + 2
+	if imgW < 1 {
+		imgW = 1
+	}
+	if imgH < 1 {
+		imgH = 1
+	}
+
+	img := image.NewNRGBA(image.Rect(0, 0, imgW, imgH))
+
+	// Fill background (wood color)
+	bgColor := color.NRGBA{R: 210, G: 180, B: 140, A: 255}
+	for y := 0; y < imgH; y++ {
+		for x := 0; x < imgW; x++ {
+			img.SetNRGBA(x, y, bgColor)
+		}
+	}
+
+	// Draw border
+	borderColor := color.NRGBA{R: 100, G: 100, B: 100, A: 255}
+	for x := 0; x < imgW; x++ {
+		img.SetNRGBA(x, 0, borderColor)
+		img.SetNRGBA(x, imgH-1, borderColor)
+	}
+	for y := 0; y < imgH; y++ {
+		img.SetNRGBA(0, y, borderColor)
+		img.SetNRGBA(imgW-1, y, borderColor)
+	}
+
+	// Draw placed parts
+	for i, p := range sheet.Placements {
+		col := partColors[i%len(partColors)]
+		px := int(p.X * scale)
+		py := int(p.Y * scale)
+		pw := int(p.PlacedWidth() * scale)
+		ph := int(p.PlacedHeight() * scale)
+
+		// Fill part rectangle
+		for y := py; y < py+ph && y < imgH; y++ {
+			for x := px; x < px+pw && x < imgW; x++ {
+				img.SetNRGBA(x, y, col)
+			}
+		}
+
+		// Part border (dark)
+		partBorder := color.NRGBA{R: 30, G: 30, B: 30, A: 255}
+		for x := px; x < px+pw && x < imgW; x++ {
+			if py >= 0 && py < imgH {
+				img.SetNRGBA(x, py, partBorder)
+			}
+			if py+ph-1 >= 0 && py+ph-1 < imgH {
+				img.SetNRGBA(x, py+ph-1, partBorder)
+			}
+		}
+		for y := py; y < py+ph && y < imgH; y++ {
+			if px >= 0 && px < imgW {
+				img.SetNRGBA(px, y, partBorder)
+			}
+			if px+pw-1 >= 0 && px+pw-1 < imgW {
+				img.SetNRGBA(px+pw-1, y, partBorder)
+			}
+		}
+	}
+
+	return img
+}
+
 // RenderSheetResults creates a scrollable container of all sheet results
-// with zoom controls and interactive canvases.
+// using static image rendering for performance.
 func RenderSheetResults(result *model.OptimizeResult, settings model.CutSettings, parts ...[]model.Part) fyne.CanvasObject {
 	if result == nil || len(result.Sheets) == 0 {
 		return widget.NewLabel("No results yet. Add parts and stock, then click Optimize.")
@@ -402,39 +496,12 @@ func RenderSheetResults(result *model.OptimizeResult, settings model.CutSettings
 		))
 		header.TextStyle = fyne.TextStyle{Bold: true}
 
-		sheetCanvas := NewSheetCanvas(sheet, settings, 600, 400)
+		img := renderSheetToImage(sheet, settings, 600, 400)
+		fyneImg := canvas.NewImageFromImage(img)
+		fyneImg.FillMode = canvas.ImageFillContain
+		fyneImg.SetMinSize(fyne.NewSize(600, 400))
 
-		// Zoom info label showing current zoom percentage
-		zoomLabel := widget.NewLabel("100%")
-
-		resetBtn := widget.NewButtonWithIcon("Reset Zoom", theme.ViewRestoreIcon(), func() {
-			sheetCanvas.ResetZoom()
-			zoomLabel.SetText("100%")
-		})
-
-		zoomInBtn := widget.NewButtonWithIcon("", theme.ZoomInIcon(), func() {
-			currentZoom := sheetCanvas.ZoomLevel()
-			newZoom := math.Min(maxZoom, currentZoom*zoomStep)
-			sheetCanvas.SetZoomCentered(newZoom)
-			zoomLabel.SetText(fmt.Sprintf("%.0f%%", sheetCanvas.ZoomLevel()*100))
-		})
-
-		zoomOutBtn := widget.NewButtonWithIcon("", theme.ZoomOutIcon(), func() {
-			currentZoom := sheetCanvas.ZoomLevel()
-			newZoom := math.Max(minZoom, currentZoom/zoomStep)
-			sheetCanvas.SetZoomCentered(newZoom)
-			zoomLabel.SetText(fmt.Sprintf("%.0f%%", sheetCanvas.ZoomLevel()*100))
-		})
-
-		zoomControls := container.NewHBox(
-			zoomOutBtn,
-			zoomLabel,
-			zoomInBtn,
-			layout.NewSpacer(),
-			resetBtn,
-		)
-
-		items = append(items, header, sheetCanvas, zoomControls, widget.NewSeparator())
+		items = append(items, header, fyneImg, widget.NewSeparator())
 	}
 
 	if len(result.UnplacedParts) > 0 {
