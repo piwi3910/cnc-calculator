@@ -800,7 +800,7 @@ func (a *App) buildProfileSelector() fyne.CanvasObject {
 // ─── Results Panel ─────────────────────────────────────────
 
 func (a *App) buildResultsPanel() fyne.CanvasObject {
-	a.resultContainer = container.NewVBox(
+	a.resultContainer = container.NewStack(
 		widget.NewLabel("No results yet. Add parts and stock, then click Optimize."),
 	)
 	return a.resultContainer
@@ -809,25 +809,30 @@ func (a *App) buildResultsPanel() fyne.CanvasObject {
 func (a *App) refreshResults() {
 	a.resultContainer.RemoveAll()
 
-	var items []fyne.CanvasObject
-
-	// Add action buttons at top
-	if a.project.Result != nil && len(a.project.Result.Sheets) > 0 {
-		previewBtn := widget.NewButtonWithIcon("Preview GCode", theme.VisibilityIcon(), func() {
-			a.previewGCode()
-		})
-		exportBtn := widget.NewButtonWithIcon("Export GCode", theme.DocumentSaveIcon(), func() {
-			a.exportGCode()
-		})
-		toolbar := container.NewHBox(layout.NewSpacer(), previewBtn, exportBtn)
-		items = append(items, toolbar, widget.NewSeparator())
+	if a.project.Result == nil || len(a.project.Result.Sheets) == 0 {
+		a.resultContainer.Add(widget.NewLabel("No results yet. Add parts and stock, then click Optimize."))
+		a.resultContainer.Refresh()
+		return
 	}
 
-	// Add the sheet results visualization
-	sheetResults := widgets.RenderSheetResults(a.project.Result, a.project.Settings)
-	items = append(items, sheetResults)
+	// Action buttons toolbar
+	previewBtn := widget.NewButtonWithIcon("Preview GCode", theme.VisibilityIcon(), func() {
+		a.previewGCode()
+	})
+	exportBtn := widget.NewButtonWithIcon("Export GCode", theme.DocumentSaveIcon(), func() {
+		a.exportGCode()
+	})
+	toolbar := container.NewHBox(layout.NewSpacer(), previewBtn, exportBtn)
 
-	a.resultContainer.Add(container.NewVBox(items...))
+	// Sheet results visualization (includes SheetCanvas graphics and summary)
+	sheetResults := widgets.RenderSheetResults(a.project.Result, a.project.Settings)
+
+	// Use Border layout: toolbar pinned at top, scrollable results fill remaining space
+	a.resultContainer.Add(container.NewBorder(
+		container.NewVBox(toolbar, widget.NewSeparator()),
+		nil, nil, nil,
+		sheetResults,
+	))
 	a.resultContainer.Refresh()
 }
 

@@ -65,11 +65,73 @@ jobs:
             -o "${{ matrix.artifact }}" \
             ./cmd/slabcut
 
+      - name: Create macOS .app bundle
+        if: matrix.goos == 'darwin'
+        run: |
+          APP_NAME="SlabCut.app"
+          mkdir -p "${APP_NAME}/Contents/MacOS"
+          mkdir -p "${APP_NAME}/Contents/Resources"
+
+          # Copy binary
+          cp "${{ matrix.artifact }}" "${APP_NAME}/Contents/MacOS/slabcut"
+
+          # Create Info.plist
+          cat > "${APP_NAME}/Contents/Info.plist" << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key>
+            <string>slabcut</string>
+            <key>CFBundleIconFile</key>
+            <string>icon.icns</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.piwi3910.slabcut</string>
+            <key>CFBundleName</key>
+            <string>SlabCut</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${GITHUB_REF_NAME}</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+            <key>NSSupportsAutomaticGraphicsSwitching</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          # Convert PNG icon to icns
+          ICON_PNG="logos/slabcut-icon.png"
+          ICONSET="icon.iconset"
+          mkdir -p "${ICONSET}"
+          sips -z 16 16     "${ICON_PNG}" --out "${ICONSET}/icon_16x16.png"
+          sips -z 32 32     "${ICON_PNG}" --out "${ICONSET}/icon_16x16@2x.png"
+          sips -z 32 32     "${ICON_PNG}" --out "${ICONSET}/icon_32x32.png"
+          sips -z 64 64     "${ICON_PNG}" --out "${ICONSET}/icon_32x32@2x.png"
+          sips -z 128 128   "${ICON_PNG}" --out "${ICONSET}/icon_128x128.png"
+          sips -z 256 256   "${ICON_PNG}" --out "${ICONSET}/icon_128x128@2x.png"
+          sips -z 256 256   "${ICON_PNG}" --out "${ICONSET}/icon_256x256.png"
+          sips -z 512 512   "${ICON_PNG}" --out "${ICONSET}/icon_256x256@2x.png"
+          sips -z 512 512   "${ICON_PNG}" --out "${ICONSET}/icon_512x512.png"
+          iconutil -c icns "${ICONSET}" -o "${APP_NAME}/Contents/Resources/icon.icns"
+          rm -rf "${ICONSET}"
+
+          # Create zip of the .app bundle
+          zip -r "slabcut-darwin-${{ matrix.goarch }}.app.zip" "${APP_NAME}"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
+
+      - name: Upload macOS .app bundle
+        if: matrix.goos == 'darwin'
+        uses: actions/upload-artifact@v4
+        with:
+          name: slabcut-darwin-${{ matrix.goarch }}.app.zip
+          path: slabcut-darwin-${{ matrix.goarch }}.app.zip
 
   release:
     needs: build
