@@ -23,6 +23,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 
+	fynetooltip "github.com/dweymouth/fyne-tooltip"
 	"github.com/piwi3910/SlabCut/internal/assets"
 	"github.com/piwi3910/SlabCut/internal/ui"
 )
@@ -36,7 +37,8 @@ func main() {
 
 	appUI := ui.NewApp(application, window)
 	appUI.SetupMenus()
-	window.SetContent(appUI.Build())
+	content := appUI.Build()
+	window.SetContent(fynetooltip.AddWindowToolTipLayer(content, window.Canvas()))
 	window.Resize(fyne.NewSize(1400, 800))
 	window.CenterOnScreen()
 

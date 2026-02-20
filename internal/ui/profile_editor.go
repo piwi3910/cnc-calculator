@@ -73,15 +73,16 @@ func (a *App) showProfileManager() {
 	}
 
 	// Action buttons
-	newBtn := widget.NewButtonWithIcon("New", theme.ContentAddIcon(), func() {
+	newBtn := newIconButtonWithTooltip(theme.ContentAddIcon(), "Create New Profile", func() {
 		a.showNewProfileDialog(w, func() {
 			profiles = model.AllProfiles()
 			listWidget.Refresh()
 			a.refreshProfileSelector()
 		})
 	})
+	newBtn.SetText("New")
 
-	duplicateBtn := widget.NewButtonWithIcon("Duplicate", theme.ContentCopyIcon(), func() {
+	duplicateBtn := newIconButtonWithTooltip(theme.ContentCopyIcon(), "Duplicate Selected Profile", func() {
 		if selectedIdx < 0 || selectedIdx >= len(profiles) {
 			dialog.ShowInformation("No Selection", "Select a profile to duplicate.", w)
 			return
@@ -92,24 +93,27 @@ func (a *App) showProfileManager() {
 			a.refreshProfileSelector()
 		})
 	})
+	duplicateBtn.SetText("Duplicate")
 
-	importBtn := widget.NewButtonWithIcon("Import", theme.FolderOpenIcon(), func() {
+	importBtn := newIconButtonWithTooltip(theme.FolderOpenIcon(), "Import Profile from File", func() {
 		a.importProfileDialog(w, func() {
 			profiles = model.AllProfiles()
 			listWidget.Refresh()
 			a.refreshProfileSelector()
 		})
 	})
+	importBtn.SetText("Import")
 
-	exportBtn := widget.NewButtonWithIcon("Export", theme.DocumentSaveIcon(), func() {
+	exportBtn := newIconButtonWithTooltip(theme.DocumentSaveIcon(), "Export Selected Profile", func() {
 		if selectedIdx < 0 || selectedIdx >= len(profiles) {
 			dialog.ShowInformation("No Selection", "Select a profile to export.", w)
 			return
 		}
 		a.exportProfileDialog(profiles[selectedIdx], w)
 	})
+	exportBtn.SetText("Export")
 
-	deleteBtn := widget.NewButtonWithIcon("Delete", theme.DeleteIcon(), func() {
+	deleteBtn := newIconButtonWithTooltip(theme.DeleteIcon(), "Delete Selected Profile", func() {
 		if selectedIdx < 0 || selectedIdx >= len(profiles) {
 			dialog.ShowInformation("No Selection", "Select a profile to delete.", w)
 			return
@@ -142,6 +146,7 @@ func (a *App) showProfileManager() {
 			w,
 		)
 	})
+	deleteBtn.SetText("Delete")
 
 	toolbar := container.NewHBox(newBtn, duplicateBtn, importBtn, exportBtn, deleteBtn)
 

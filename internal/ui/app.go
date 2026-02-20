@@ -511,9 +511,10 @@ func (a *App) buildQuickSettingsPanel() fyne.CanvasObject {
 	accordion.Open(3)
 
 	// Advanced settings button at bottom
-	advancedBtn := widget.NewButtonWithIcon("Advanced Settings...", theme.SettingsIcon(), func() {
+	advancedBtn := newIconButtonWithTooltip(theme.SettingsIcon(), "Open Advanced Settings", func() {
 		a.showAdvancedSettingsDialog()
 	})
+	advancedBtn.SetText("Advanced Settings...")
 
 	// Store reference so we can rebuild
 	a.settingsContainer = container.NewVBox(accordion, advancedBtn)
@@ -546,13 +547,13 @@ func (a *App) buildCenterCanvas() fyne.CanvasObject {
 	a.refreshSheetSelector()
 
 	// Zoom controls
-	zoomInBtn := widget.NewButtonWithIcon("", theme.ZoomInIcon(), func() {
+	zoomInBtn := newIconButtonWithTooltip(theme.ZoomInIcon(), "Zoom In", func() {
 		a.sheetCanvas.SetZoomCentered(a.sheetCanvas.ZoomLevel() * 1.25)
 	})
-	zoomOutBtn := widget.NewButtonWithIcon("", theme.ZoomOutIcon(), func() {
+	zoomOutBtn := newIconButtonWithTooltip(theme.ZoomOutIcon(), "Zoom Out", func() {
 		a.sheetCanvas.SetZoomCentered(a.sheetCanvas.ZoomLevel() / 1.25)
 	})
-	resetZoomBtn := widget.NewButtonWithIcon("Reset", theme.ViewRestoreIcon(), func() {
+	resetZoomBtn := newIconButtonWithTooltip(theme.ViewRestoreIcon(), "Reset Zoom", func() {
 		a.sheetCanvas.ResetZoom()
 	})
 
@@ -842,16 +843,16 @@ func (a *App) refreshPartsList() {
 		}
 		detailLabel := widget.NewLabel(detailText)
 
-		editBtn := widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
+		editBtn := newIconButtonWithTooltip(theme.DocumentCreateIcon(), "Edit Part", func() {
 			a.showEditPartDialog(idx)
 		})
-		deleteBtn := widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
+		deleteBtn := newIconButtonWithTooltip(theme.DeleteIcon(), "Delete Part", func() {
 			a.saveState("Delete Part")
 			a.project.Parts = append(a.project.Parts[:idx], a.project.Parts[idx+1:]...)
 			a.refreshPartsList()
 			a.scheduleOptimize()
 		})
-		saveBtn := widget.NewButtonWithIcon("", theme.DownloadIcon(), func() {
+		saveBtn := newIconButtonWithTooltip(theme.DownloadIcon(), "Save to Library", func() {
 			a.showSaveToLibraryDialog(a.project.Parts[idx])
 		})
 
@@ -894,10 +895,10 @@ func (a *App) refreshStockList() {
 		}
 		detailLabel := widget.NewLabel(detailText)
 
-		editBtn := widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
+		editBtn := newIconButtonWithTooltip(theme.DocumentCreateIcon(), "Edit Stock Sheet", func() {
 			a.showEditStockDialog(idx)
 		})
-		deleteBtn := widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
+		deleteBtn := newIconButtonWithTooltip(theme.DeleteIcon(), "Delete Stock Sheet", func() {
 			a.saveState("Delete Stock Sheet")
 			a.project.Stocks = append(a.project.Stocks[:idx], a.project.Stocks[idx+1:]...)
 			a.refreshStockList()
