@@ -13,6 +13,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/piwi3910/SlabCut/internal/engine"
+	"github.com/piwi3910/SlabCut/internal/export"
 	"github.com/piwi3910/SlabCut/internal/gcode"
 	partimporter "github.com/piwi3910/SlabCut/internal/importer"
 	"github.com/piwi3910/SlabCut/internal/model"
@@ -71,6 +72,9 @@ func (a *App) SetupMenus() {
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Export GCode...", func() {
 			a.exportGCode()
+		}),
+		fyne.NewMenuItem("Export PDF...", func() {
+			a.exportPDF()
 		}),
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Quit", func() {
@@ -764,6 +768,30 @@ func (a *App) saveGCodeFile(code, defaultName string) {
 		}
 	}, a.window)
 	d.SetFileName(defaultName)
+	d.Show()
+}
+
+func (a *App) exportPDF() {
+	if a.project.Result == nil || len(a.project.Result.Sheets) == 0 {
+		dialog.ShowInformation("No results", "Run the optimizer first before exporting PDF.", a.window)
+		return
+	}
+
+	d := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
+		if err != nil || writer == nil {
+			return
+		}
+		// Close the writer immediately since ExportPDF writes directly to the file path
+		writer.Close()
+		path := writer.URI().Path()
+		if exportErr := export.ExportPDF(path, *a.project.Result, a.project.Settings); exportErr != nil {
+			dialog.ShowError(exportErr, a.window)
+		} else {
+			dialog.ShowInformation("Export Complete",
+				fmt.Sprintf("PDF saved to %s", path), a.window)
+		}
+	}, a.window)
+	d.SetFileName("cut-layout.pdf")
 	d.Show()
 }
 
