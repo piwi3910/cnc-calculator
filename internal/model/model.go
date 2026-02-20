@@ -231,6 +231,7 @@ type Part struct {
 	Height      float64     `json:"height"` // mm (bounding box height for non-rectangular parts)
 	Quantity    int         `json:"quantity"`
 	Grain       Grain       `json:"grain"`
+	Material    string      `json:"material,omitempty"`     // Material type (e.g., "Plywood", "MDF"); empty means unspecified
 	Outline     Outline     `json:"outline,omitempty"`      // Non-rectangular part outline; nil for rectangular parts
 	EdgeBanding EdgeBanding `json:"edge_banding,omitempty"` // Which edges need banding
 }
@@ -254,6 +255,7 @@ type StockSheet struct {
 	Height        float64        `json:"height"` // mm
 	Quantity      int            `json:"quantity"`
 	Grain         Grain          `json:"grain"`           // Sheet grain direction (None, Horizontal, Vertical)
+	Material      string         `json:"material,omitempty"` // Material type (e.g., "Plywood", "MDF"); empty means unspecified
 	Tabs          StockTabConfig `json:"tabs"`            // Override default tab config for this sheet
 	PricePerSheet float64        `json:"price_per_sheet"` // Cost per sheet in user's currency (0 = not set)
 }

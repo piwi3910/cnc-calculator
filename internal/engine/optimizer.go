@@ -16,12 +16,107 @@ func New(settings model.CutSettings) *Optimizer {
 }
 
 // Optimize takes parts and stock sheets, returns an optimized layout.
-// Dispatches to the appropriate algorithm based on settings.
+// When parts and stocks have material types set, optimization is performed
+// per material group: parts with a specific material are only placed on
+// stocks of the same material. Parts or stocks with empty material are
+// treated as universal (compatible with anything).
 func (o *Optimizer) Optimize(parts []model.Part, stocks []model.StockSheet) model.OptimizeResult {
-	if o.Settings.Algorithm == model.AlgorithmGenetic {
-		return OptimizeGenetic(o.Settings, parts, stocks)
+	// Group parts and stocks by material for multi-material optimization
+	groups := groupByMaterial(parts, stocks)
+
+	combined := model.OptimizeResult{}
+	for _, g := range groups {
+		var groupResult model.OptimizeResult
+		if o.Settings.Algorithm == model.AlgorithmGenetic {
+			groupResult = OptimizeGenetic(o.Settings, g.parts, g.stocks)
+		} else {
+			groupResult = o.optimizeGuillotine(g.parts, g.stocks)
+		}
+		combined.Sheets = append(combined.Sheets, groupResult.Sheets...)
+		combined.UnplacedParts = append(combined.UnplacedParts, groupResult.UnplacedParts...)
 	}
-	return o.optimizeGuillotine(parts, stocks)
+	return combined
+}
+
+// materialGroup holds parts and stocks for a single material type.
+type materialGroup struct {
+	material string
+	parts    []model.Part
+	stocks   []model.StockSheet
+}
+
+// groupByMaterial splits parts and stocks into groups by material type.
+// Parts with an empty material can go on any stock, so they are added to
+// every group. Stocks with an empty material can accept any part, so they
+// are added to every group. If no materials are specified at all, everything
+// goes into one group.
+func groupByMaterial(parts []model.Part, stocks []model.StockSheet) []materialGroup {
+	// Collect all unique non-empty material names
+	materialSet := make(map[string]bool)
+	for _, p := range parts {
+		if p.Material != "" {
+			materialSet[p.Material] = true
+		}
+	}
+	for _, s := range stocks {
+		if s.Material != "" {
+			materialSet[s.Material] = true
+		}
+	}
+
+	// If no materials specified, return a single group with everything
+	if len(materialSet) == 0 {
+		return []materialGroup{{parts: parts, stocks: stocks}}
+	}
+
+	materials := make([]string, 0, len(materialSet))
+	for m := range materialSet {
+		materials = append(materials, m)
+	}
+	sort.Strings(materials)
+
+	// Build groups
+	groups := make([]materialGroup, 0, len(materials))
+	var universalParts []model.Part
+	var universalStocks []model.StockSheet
+
+	for _, p := range parts {
+		if p.Material == "" {
+			universalParts = append(universalParts, p)
+		}
+	}
+	for _, s := range stocks {
+		if s.Material == "" {
+			universalStocks = append(universalStocks, s)
+		}
+	}
+
+	for _, mat := range materials {
+		g := materialGroup{material: mat}
+		for _, p := range parts {
+			if p.Material == mat {
+				g.parts = append(g.parts, p)
+			}
+		}
+		for _, s := range stocks {
+			if s.Material == mat {
+				g.stocks = append(g.stocks, s)
+			}
+		}
+		// Universal stocks can be used by any material group
+		g.stocks = append(g.stocks, universalStocks...)
+		groups = append(groups, g)
+	}
+
+	// If there are universal parts (no material), create a group for them
+	// using all stocks (universal stocks + all material stocks)
+	if len(universalParts) > 0 {
+		g := materialGroup{parts: universalParts}
+		g.stocks = append(g.stocks, stocks...)
+		groups = append(groups, g)
+	}
+
+	return groups
 }
 
 // optimizeGuillotine uses a guillotine-based shelf algorithm with best-fit decreasing heuristic.
