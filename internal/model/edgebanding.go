@@ -4,9 +4,9 @@ import "math"
 
 // EdgeBandingSummary holds the calculated edge banding requirements for a project.
 type EdgeBandingSummary struct {
-	TotalLinearMM    float64 `json:"total_linear_mm"`    // Total banding length in mm (no waste)
-	TotalLinearM     float64 `json:"total_linear_m"`     // Total banding length in meters (no waste)
-	WastePercent     float64 `json:"waste_percent"`      // Waste percentage applied
+	TotalLinearMM    float64 `json:"total_linear_mm"`     // Total banding length in mm (no waste)
+	TotalLinearM     float64 `json:"total_linear_m"`      // Total banding length in meters (no waste)
+	WastePercent     float64 `json:"waste_percent"`       // Waste percentage applied
 	TotalWithWasteMM float64 `json:"total_with_waste_mm"` // Total with waste in mm
 	TotalWithWasteM  float64 `json:"total_with_waste_m"`  // Total with waste in meters
 	PartCount        int     `json:"part_count"`          // Number of individual pieces needing banding
@@ -51,7 +51,7 @@ type PerPartEdgeBanding struct {
 	Width         float64 `json:"width"`
 	Height        float64 `json:"height"`
 	Quantity      int     `json:"quantity"`
-	Edges         string  `json:"edges"`          // e.g., "T+B+L+R"
+	Edges         string  `json:"edges"`           // e.g., "T+B+L+R"
 	LengthPerUnit float64 `json:"length_per_unit"` // mm per piece
 	TotalLength   float64 `json:"total_length"`    // mm for all pieces
 }

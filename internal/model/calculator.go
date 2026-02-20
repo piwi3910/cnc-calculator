@@ -4,16 +4,16 @@ import "math"
 
 // PurchaseEstimate holds the results of a sheet purchasing calculation.
 type PurchaseEstimate struct {
-	TotalPartArea     float64 `json:"total_part_area"`      // Total area of all parts (sq mm)
-	TotalBoardFeet    float64 `json:"total_board_feet"`     // Total area in board feet (1 bf = 144 sq in = 92903.04 sq mm)
-	SheetArea         float64 `json:"sheet_area"`           // Area of one sheet (sq mm)
-	SheetsNeededExact float64 `json:"sheets_needed_exact"`  // Exact fractional number of sheets
-	SheetsNeededMin   int     `json:"sheets_needed_min"`    // Minimum sheets (ceiling of exact)
-	SheetsWithWaste   int     `json:"sheets_with_waste"`    // Recommended sheets including waste factor
-	WastePercent      float64 `json:"waste_percent"`        // Waste factor applied (e.g., 15 for 15%)
-	EstimatedCost     float64 `json:"estimated_cost"`       // Total cost if pricing available
-	PricePerSheet     float64 `json:"price_per_sheet"`      // Price used for estimation
-	KerfWidth         float64 `json:"kerf_width"`           // Kerf width used in calculation
+	TotalPartArea     float64 `json:"total_part_area"`     // Total area of all parts (sq mm)
+	TotalBoardFeet    float64 `json:"total_board_feet"`    // Total area in board feet (1 bf = 144 sq in = 92903.04 sq mm)
+	SheetArea         float64 `json:"sheet_area"`          // Area of one sheet (sq mm)
+	SheetsNeededExact float64 `json:"sheets_needed_exact"` // Exact fractional number of sheets
+	SheetsNeededMin   int     `json:"sheets_needed_min"`   // Minimum sheets (ceiling of exact)
+	SheetsWithWaste   int     `json:"sheets_with_waste"`   // Recommended sheets including waste factor
+	WastePercent      float64 `json:"waste_percent"`       // Waste factor applied (e.g., 15 for 15%)
+	EstimatedCost     float64 `json:"estimated_cost"`      // Total cost if pricing available
+	PricePerSheet     float64 `json:"price_per_sheet"`     // Price used for estimation
+	KerfWidth         float64 `json:"kerf_width"`          // Kerf width used in calculation
 }
 
 // sqmmPerBoardFoot is the number of square millimeters in one board foot.

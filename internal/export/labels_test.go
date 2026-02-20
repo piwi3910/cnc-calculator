@@ -21,12 +21,12 @@ func buildLabelsTestResult() model.OptimizeResult {
 				},
 				Placements: []model.Placement{
 					{
-						Part:    model.Part{ID: "p1", Label: "Side Panel", Width: 600, Height: 400, Quantity: 1},
-						X:       10, Y: 10, Rotated: false,
+						Part: model.Part{ID: "p1", Label: "Side Panel", Width: 600, Height: 400, Quantity: 1},
+						X:    10, Y: 10, Rotated: false,
 					},
 					{
-						Part:    model.Part{ID: "p2", Label: "Top", Width: 500, Height: 300, Quantity: 1},
-						X:       620, Y: 10, Rotated: true,
+						Part: model.Part{ID: "p2", Label: "Top", Width: 500, Height: 300, Quantity: 1},
+						X:    620, Y: 10, Rotated: true,
 					},
 				},
 			},
@@ -39,8 +39,8 @@ func buildLabelsTestResult() model.OptimizeResult {
 				},
 				Placements: []model.Placement{
 					{
-						Part:    model.Part{ID: "p3", Label: "Back Panel", Width: 800, Height: 500, Quantity: 1},
-						X:       10, Y: 10, Rotated: false,
+						Part: model.Part{ID: "p3", Label: "Back Panel", Width: 800, Height: 500, Quantity: 1},
+						X:    10, Y: 10, Rotated: false,
 					},
 				},
 			},

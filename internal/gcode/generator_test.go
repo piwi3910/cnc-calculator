@@ -779,9 +779,9 @@ func TestStructuralOrder_InteriorFirst(t *testing.T) {
 	sheet := model.SheetResult{
 		Stock: model.StockSheet{Width: 1000, Height: 1000},
 		Placements: []model.Placement{
-			{Part: model.Part{Label: "Edge", Width: 100, Height: 100}, X: 0, Y: 0},           // on corner, minEdgeDist=0
-			{Part: model.Part{Label: "Middle", Width: 100, Height: 100}, X: 200, Y: 200},      // minEdgeDist=200
-			{Part: model.Part{Label: "Center", Width: 100, Height: 100}, X: 450, Y: 450},      // minEdgeDist=450
+			{Part: model.Part{Label: "Edge", Width: 100, Height: 100}, X: 0, Y: 0},       // on corner, minEdgeDist=0
+			{Part: model.Part{Label: "Middle", Width: 100, Height: 100}, X: 200, Y: 200}, // minEdgeDist=200
+			{Part: model.Part{Label: "Center", Width: 100, Height: 100}, X: 450, Y: 450}, // minEdgeDist=450
 		},
 	}
 

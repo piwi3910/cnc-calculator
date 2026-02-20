@@ -1372,8 +1372,17 @@ func (a *App) buildProfileSelector() fyne.CanvasObject {
 // ─── Results Panel ─────────────────────────────────────────
 
 func (a *App) buildResultsPanel() fyne.CanvasObject {
+	optimizeBtn := widget.NewButtonWithIcon("Optimize", theme.MediaPlayIcon(), func() {
+		a.runOptimize()
+	})
+	optimizeBtn.Importance = widget.HighImportance
 	a.resultContainer = container.NewStack(
-		widget.NewLabel("No results yet. Add parts and stock, then click Optimize."),
+		container.NewCenter(
+			container.NewVBox(
+				widget.NewLabel("No results yet. Add parts and stock, then click Optimize."),
+				optimizeBtn,
+			),
+		),
 	)
 	return a.resultContainer
 }
@@ -1381,8 +1390,18 @@ func (a *App) buildResultsPanel() fyne.CanvasObject {
 func (a *App) refreshResults() {
 	a.resultContainer.RemoveAll()
 
+	optimizeBtn := widget.NewButtonWithIcon("Optimize", theme.MediaPlayIcon(), func() {
+		a.runOptimize()
+	})
+	optimizeBtn.Importance = widget.HighImportance
+
 	if a.project.Result == nil || len(a.project.Result.Sheets) == 0 {
-		a.resultContainer.Add(widget.NewLabel("No results yet. Add parts and stock, then click Optimize."))
+		a.resultContainer.Add(container.NewCenter(
+			container.NewVBox(
+				widget.NewLabel("No results yet. Add parts and stock, then click Optimize."),
+				optimizeBtn,
+			),
+		))
 		a.resultContainer.Refresh()
 		return
 	}
@@ -1397,7 +1416,7 @@ func (a *App) refreshResults() {
 	labelsBtn := widget.NewButtonWithIcon("Generate Labels", theme.ListIcon(), func() {
 		a.exportLabels()
 	})
-	toolbar := container.NewHBox(layout.NewSpacer(), saveOffcutsBtn, labelsBtn, exportBtn)
+	toolbar := container.NewHBox(optimizeBtn, layout.NewSpacer(), saveOffcutsBtn, labelsBtn, exportBtn)
 
 	// Build cut layout view
 	sheetResults := widgets.RenderSheetResults(a.project.Result, a.project.Settings, a.project.Parts)

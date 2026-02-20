@@ -264,42 +264,97 @@ func (o *Optimizer) optimizeGuillotine(parts []model.Part, stocks []model.StockS
 		// Remove used stock
 		stockPool = append(stockPool[:bestStockIdx], stockPool[bestStockIdx+1:]...)
 
-		sheet := model.SheetResult{Stock: stock}
-		var unplaced []model.Part
+		// Try multiple rotation strategies and keep the best result for this sheet
+		bestSheet, bestUnplaced := o.packSheetBestStrategy(stock, remaining)
 
-		// Get stock tab configuration
-		tabConfig := stock.Tabs
-		if !tabConfig.Enabled {
-			tabConfig = o.Settings.StockTabs
+		if len(bestSheet.Placements) > 0 {
+			result.Sheets = append(result.Sheets, bestSheet)
+		}
+		remaining = bestUnplaced
+	}
+
+	result.UnplacedParts = remaining
+	return result
+}
+
+// rotationStrategy controls how parts are rotated during packing.
+type rotationStrategy int
+
+const (
+	rotBestFit    rotationStrategy = iota // Compare both orientations, pick tighter fit
+	rotAllNormal                          // Always use normal orientation (fallback to rotated if doesn't fit)
+	rotAllRotated                         // Prefer rotated for all no-grain parts (fallback to normal if doesn't fit)
+)
+
+// packSheetBestStrategy tries multiple rotation strategies and returns the best result.
+func (o *Optimizer) packSheetBestStrategy(stock model.StockSheet, parts []model.Part) (model.SheetResult, []model.Part) {
+	strategies := []rotationStrategy{rotBestFit, rotAllNormal, rotAllRotated}
+
+	var bestSheet model.SheetResult
+	var bestUnplaced []model.Part
+	bestPlaced := -1
+
+	for _, strat := range strategies {
+		sheet, unplaced := o.packSheet(stock, parts, strat)
+		placed := len(sheet.Placements)
+		if placed > bestPlaced {
+			bestPlaced = placed
+			bestSheet = sheet
+			bestUnplaced = unplaced
+		} else if placed == bestPlaced && placed > 0 {
+			// Same number placed — pick higher efficiency
+			if sheet.Efficiency() > bestSheet.Efficiency() {
+				bestSheet = sheet
+				bestUnplaced = unplaced
+			}
+		}
+	}
+	return bestSheet, bestUnplaced
+}
+
+// packSheet packs parts into a single stock sheet using the given rotation strategy.
+func (o *Optimizer) packSheet(stock model.StockSheet, parts []model.Part, strategy rotationStrategy) (model.SheetResult, []model.Part) {
+	sheet := model.SheetResult{Stock: stock}
+	var unplaced []model.Part
+
+	tabConfig := stock.Tabs
+	if !tabConfig.Enabled {
+		tabConfig = o.Settings.StockTabs
+	}
+
+	freeRects := o.calculateFreeRects(stock, tabConfig)
+	packer := newGuillotinePackerWithRects(freeRects, o.Settings.KerfWidth)
+
+	for _, part := range parts {
+		placed := false
+		var placedX, placedY float64
+		var placedRotated bool
+
+		canNormal, canRotated := model.CanPlaceWithGrain(part.Grain, stock.Grain)
+
+		// For outline parts with NestingRotations > 2, try multiple angles
+		if len(part.Outline) > 0 && o.Settings.NestingRotations > 2 && part.Grain == model.GrainNone {
+			placed = o.tryOutlineRotations(packer, &sheet, part, o.Settings.NestingRotations)
 		}
 
-		// Calculate free rectangles (initial space minus edge trim and stock tabs)
-		freeRects := o.calculateFreeRects(stock, tabConfig)
-
-		packer := newGuillotinePackerWithRects(freeRects, o.Settings.KerfWidth)
-
-		for _, part := range remaining {
-			placed := false
-			var placedX, placedY float64
-			var placedRotated bool
-
-			// Check grain compatibility between part and stock sheet
-			canNormal, canRotated := model.CanPlaceWithGrain(part.Grain, stock.Grain)
-
-			// For outline parts with NestingRotations > 2, try multiple angles
-			if len(part.Outline) > 0 && o.Settings.NestingRotations > 2 && part.Grain == model.GrainNone {
-				placed = o.tryOutlineRotations(packer, &sheet, part, o.Settings.NestingRotations)
-			}
-
-			if !placed {
-				// Try original orientation
-				if canNormal {
+		if !placed {
+			switch strategy {
+			case rotAllRotated:
+				// Prefer rotated for no-grain parts
+				if canRotated && part.Width != part.Height {
+					if ok, x, y := packer.insert(part.Height, part.Width); ok {
+						sheet.Placements = append(sheet.Placements, model.Placement{
+							Part: part, X: x, Y: y, Rotated: true,
+						})
+						placed = true
+						placedX, placedY = x, y
+						placedRotated = true
+					}
+				}
+				if !placed && canNormal {
 					if ok, x, y := packer.insert(part.Width, part.Height); ok {
 						sheet.Placements = append(sheet.Placements, model.Placement{
-							Part:    part,
-							X:       x,
-							Y:       y,
-							Rotated: false,
+							Part: part, X: x, Y: y, Rotated: false,
 						})
 						placed = true
 						placedX, placedY = x, y
@@ -307,14 +362,76 @@ func (o *Optimizer) optimizeGuillotine(parts []model.Part, stocks []model.StockS
 					}
 				}
 
-				// Try rotated (if grain allows)
+			case rotBestFit:
+				// Compare both orientations and pick the tighter fit
+				if canNormal && canRotated && part.Width != part.Height {
+					normalFit := packer.bestFit(part.Width, part.Height)
+					rotatedFit := packer.bestFit(part.Height, part.Width)
+
+					preferRotated := false
+					if normalFit < 0 && rotatedFit >= 0 {
+						preferRotated = true
+					} else if normalFit >= 0 && rotatedFit >= 0 && rotatedFit < normalFit {
+						preferRotated = true
+					}
+
+					if preferRotated {
+						if ok, x, y := packer.insert(part.Height, part.Width); ok {
+							sheet.Placements = append(sheet.Placements, model.Placement{
+								Part: part, X: x, Y: y, Rotated: true,
+							})
+							placed = true
+							placedX, placedY = x, y
+							placedRotated = true
+						}
+					} else if normalFit >= 0 {
+						if ok, x, y := packer.insert(part.Width, part.Height); ok {
+							sheet.Placements = append(sheet.Placements, model.Placement{
+								Part: part, X: x, Y: y, Rotated: false,
+							})
+							placed = true
+							placedX, placedY = x, y
+							placedRotated = false
+						}
+					}
+				}
+				// Fallback for grain-restricted or square parts
+				if !placed && canNormal {
+					if ok, x, y := packer.insert(part.Width, part.Height); ok {
+						sheet.Placements = append(sheet.Placements, model.Placement{
+							Part: part, X: x, Y: y, Rotated: false,
+						})
+						placed = true
+						placedX, placedY = x, y
+						placedRotated = false
+					}
+				}
 				if !placed && canRotated {
 					if ok, x, y := packer.insert(part.Height, part.Width); ok {
 						sheet.Placements = append(sheet.Placements, model.Placement{
-							Part:    part,
-							X:       x,
-							Y:       y,
-							Rotated: true,
+							Part: part, X: x, Y: y, Rotated: true,
+						})
+						placed = true
+						placedX, placedY = x, y
+						placedRotated = true
+					}
+				}
+
+			default: // rotAllNormal
+				if canNormal {
+					if ok, x, y := packer.insert(part.Width, part.Height); ok {
+						sheet.Placements = append(sheet.Placements, model.Placement{
+							Part: part, X: x, Y: y, Rotated: false,
+						})
+						placed = true
+						placedX, placedY = x, y
+						placedRotated = false
+					}
+				}
+				if !placed && canRotated {
+					if ok, x, y := packer.insert(part.Height, part.Width); ok {
+						sheet.Placements = append(sheet.Placements, model.Placement{
+							Part: part, X: x, Y: y, Rotated: true,
 						})
 						placed = true
 						placedX, placedY = x, y
@@ -322,26 +439,18 @@ func (o *Optimizer) optimizeGuillotine(parts []model.Part, stocks []model.StockS
 					}
 				}
 			}
-
-			// If part was placed and has interior cutouts, add cutout bounding
-			// rectangles as free space for nesting smaller parts inside
-			if placed && len(part.Cutouts) > 0 {
-				addCutoutFreeRects(packer, part, placedX, placedY, placedRotated, o.Settings.KerfWidth)
-			}
-
-			if !placed {
-				unplaced = append(unplaced, part)
-			}
 		}
 
-		if len(sheet.Placements) > 0 {
-			result.Sheets = append(result.Sheets, sheet)
+		if placed && len(part.Cutouts) > 0 {
+			addCutoutFreeRects(packer, part, placedX, placedY, placedRotated, o.Settings.KerfWidth)
 		}
-		remaining = unplaced
+
+		if !placed {
+			unplaced = append(unplaced, part)
+		}
 	}
 
-	result.UnplacedParts = remaining
-	return result
+	return sheet, unplaced
 }
 
 // calculateFreeRects computes the initial free rectangles for packing,
@@ -711,52 +820,109 @@ func (gp *guillotinePacker) insert(w, h float64) (bool, float64, float64) {
 	chosen := gp.freeRects[bestIdx]
 	px, py := chosen.x, chosen.y
 
-	// Remove chosen rect
-	gp.freeRects = append(gp.freeRects[:bestIdx], gp.freeRects[bestIdx+1:]...)
+	// Maximal rectangles approach: split ALL overlapping free rects around the placed piece.
+	// This produces larger free areas than pure guillotine splitting, allowing parts to
+	// be rotated and placed in remaining strips that span multiple previous guillotine cuts.
+	placed := rect{x: px, y: py, w: wk, h: hk}
+	gp.splitAroundPlacement(placed)
 
-	// Split the remaining space (guillotine split).
-	// Choose split axis that maximizes the larger remaining rectangle.
-	rightW := chosen.w - wk
-	bottomH := chosen.h - hk
+	return true, px, py
+}
 
-	// Shorter leftover axis split — tends to produce better results
-	if rightW*chosen.h > chosen.w*bottomH {
-		// Split vertically: right remainder gets full height
-		if rightW > 0.001 {
-			gp.freeRects = append(gp.freeRects, rect{
-				x: chosen.x + wk,
-				y: chosen.y,
-				w: rightW,
-				h: chosen.h,
+// splitAroundPlacement removes all free rects that overlap with the placed rect
+// and generates maximal sub-rects from each overlap. Then prunes contained rects.
+func (gp *guillotinePacker) splitAroundPlacement(placed rect) {
+	var newRects []rect
+
+	for _, r := range gp.freeRects {
+		if !rectsOverlap(r, placed) {
+			newRects = append(newRects, r)
+			continue
+		}
+
+		// Generate up to 4 maximal sub-rects from the non-overlapping portions.
+		// Left strip (full height of original rect)
+		if placed.x > r.x+0.001 {
+			newRects = append(newRects, rect{
+				x: r.x, y: r.y,
+				w: placed.x - r.x, h: r.h,
 			})
 		}
-		if bottomH > 0.001 {
-			gp.freeRects = append(gp.freeRects, rect{
-				x: chosen.x,
-				y: chosen.y + hk,
-				w: wk,
-				h: bottomH,
+		// Right strip (full height of original rect)
+		if placed.x+placed.w < r.x+r.w-0.001 {
+			newRects = append(newRects, rect{
+				x: placed.x + placed.w, y: r.y,
+				w: (r.x + r.w) - (placed.x + placed.w), h: r.h,
 			})
 		}
-	} else {
-		// Split horizontally: bottom remainder gets full width
-		if bottomH > 0.001 {
-			gp.freeRects = append(gp.freeRects, rect{
-				x: chosen.x,
-				y: chosen.y + hk,
-				w: chosen.w,
-				h: bottomH,
+		// Top strip (full width of original rect)
+		if placed.y > r.y+0.001 {
+			newRects = append(newRects, rect{
+				x: r.x, y: r.y,
+				w: r.w, h: placed.y - r.y,
 			})
 		}
-		if rightW > 0.001 {
-			gp.freeRects = append(gp.freeRects, rect{
-				x: chosen.x + wk,
-				y: chosen.y,
-				w: rightW,
-				h: hk,
+		// Bottom strip (full width of original rect)
+		if placed.y+placed.h < r.y+r.h-0.001 {
+			newRects = append(newRects, rect{
+				x: r.x, y: placed.y + placed.h,
+				w: r.w, h: (r.y + r.h) - (placed.y + placed.h),
 			})
 		}
 	}
 
-	return true, px, py
+	// Prune rects that are fully contained within another
+	gp.freeRects = pruneContained(newRects)
+}
+
+// rectsOverlap returns true if two rectangles overlap (not just touch).
+func rectsOverlap(a, b rect) bool {
+	return a.x < b.x+b.w-0.001 && a.x+a.w > b.x+0.001 &&
+		a.y < b.y+b.h-0.001 && a.y+a.h > b.y+0.001
+}
+
+// pruneContained removes any rect that is fully contained within another.
+func pruneContained(rects []rect) []rect {
+	if len(rects) <= 1 {
+		return rects
+	}
+	kept := make([]rect, 0, len(rects))
+	for i, a := range rects {
+		contained := false
+		for j, b := range rects {
+			if i != j && containsRect(b, a) {
+				contained = true
+				break
+			}
+		}
+		if !contained {
+			kept = append(kept, a)
+		}
+	}
+	return kept
+}
+
+// containsRect returns true if outer fully contains inner.
+func containsRect(outer, inner rect) bool {
+	return outer.x <= inner.x+0.001 && outer.y <= inner.y+0.001 &&
+		outer.x+outer.w >= inner.x+inner.w-0.001 &&
+		outer.y+outer.h >= inner.y+inner.h-0.001
+}
+
+// bestFit returns the area waste for inserting a piece of size w x h
+// without modifying the packer state. Returns -1 if it doesn't fit.
+func (gp *guillotinePacker) bestFit(w, h float64) float64 {
+	wk := w + gp.kerf
+	hk := h + gp.kerf
+	best := float64(-1)
+
+	for _, r := range gp.freeRects {
+		if wk <= r.w+0.001 && hk <= r.h+0.001 {
+			areaFit := (r.w * r.h) - (w * h)
+			if best < 0 || areaFit < best {
+				best = areaFit
+			}
+		}
+	}
+	return best
 }

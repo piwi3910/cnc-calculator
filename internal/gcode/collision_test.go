@@ -80,9 +80,9 @@ func TestCheckDustShoeCollisions_Disabled(t *testing.T) {
 func TestCheckDustShoeCollisions_DetectsNearbyClamp(t *testing.T) {
 	settings := model.DefaultSettings()
 	settings.DustShoeEnabled = true
-	settings.DustShoeWidth = 80.0      // 40mm radius
-	settings.DustShoeClearance = 5.0   // 5mm clearance
-	settings.ToolDiameter = 6.0        // 3mm tool radius
+	settings.DustShoeWidth = 80.0    // 40mm radius
+	settings.DustShoeClearance = 5.0 // 5mm clearance
+	settings.ToolDiameter = 6.0      // 3mm tool radius
 
 	// Clamp at origin, part very close to it — tool perimeter will be near clamp
 	settings.ClampZones = []model.ClampZone{

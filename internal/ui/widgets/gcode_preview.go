@@ -21,17 +21,17 @@ import (
 // Toolpath colors for different move types.
 var (
 	colorRapid   = color.NRGBA{R: 255, G: 60, B: 60, A: 200}   // Red for rapid moves
-	colorFeed    = color.NRGBA{R: 30, G: 120, B: 255, A: 230}   // Blue for cutting moves
-	colorPlunge  = color.NRGBA{R: 50, G: 200, B: 50, A: 220}    // Green for plunge
-	colorRetract = color.NRGBA{R: 180, G: 180, B: 0, A: 180}    // Yellow for retract
-	colorSheet   = color.NRGBA{R: 230, G: 210, B: 175, A: 255}  // Light wood for stock
-	colorPart    = color.NRGBA{R: 200, G: 220, B: 255, A: 120}  // Light blue for part outlines
-	colorTab     = color.NRGBA{R: 255, G: 165, B: 0, A: 220}    // Orange for tab markers
-	colorDimFeed = color.NRGBA{R: 30, G: 120, B: 255, A: 60}    // Dim blue for remaining feed moves
-	colorDimRap  = color.NRGBA{R: 255, G: 60, B: 60, A: 50}     // Dim red for remaining rapid moves
-	colorToolPos = color.NRGBA{R: 255, G: 0, B: 0, A: 255}      // Bright red for tool position
-	colorDoneFd  = color.NRGBA{R: 0, G: 200, B: 80, A: 230}     // Green for completed feed
-	colorDoneRap = color.NRGBA{R: 200, G: 100, B: 100, A: 130}  // Dim completed rapid
+	colorFeed    = color.NRGBA{R: 30, G: 120, B: 255, A: 230}  // Blue for cutting moves
+	colorPlunge  = color.NRGBA{R: 50, G: 200, B: 50, A: 220}   // Green for plunge
+	colorRetract = color.NRGBA{R: 180, G: 180, B: 0, A: 180}   // Yellow for retract
+	colorSheet   = color.NRGBA{R: 230, G: 210, B: 175, A: 255} // Light wood for stock
+	colorPart    = color.NRGBA{R: 200, G: 220, B: 255, A: 120} // Light blue for part outlines
+	colorTab     = color.NRGBA{R: 255, G: 165, B: 0, A: 220}   // Orange for tab markers
+	colorDimFeed = color.NRGBA{R: 30, G: 120, B: 255, A: 60}   // Dim blue for remaining feed moves
+	colorDimRap  = color.NRGBA{R: 255, G: 60, B: 60, A: 50}    // Dim red for remaining rapid moves
+	colorToolPos = color.NRGBA{R: 255, G: 0, B: 0, A: 255}     // Bright red for tool position
+	colorDoneFd  = color.NRGBA{R: 0, G: 200, B: 80, A: 230}    // Green for completed feed
+	colorDoneRap = color.NRGBA{R: 200, G: 100, B: 100, A: 130} // Dim completed rapid
 )
 
 // GCodePreview is a custom Fyne widget that renders a visual preview

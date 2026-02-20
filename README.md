@@ -7,7 +7,7 @@ A cross-platform desktop application for optimizing rectangular cut lists and ge
 ## Features
 
 ### Optimization Engine
-- **2D Bin Packing** — Guillotine-based optimization with Best Area Fit heuristic
+- **2D Bin Packing** — Maximal rectangles optimization with Best Area Fit heuristic and automatic rotation for no-grain parts
 - **Genetic Algorithm** — Alternative optimizer using population-based meta-heuristic for better packing efficiency
 - **Grain Direction** — Supports horizontal/vertical grain constraints on both parts and stock sheets with automatic grain matching
 - **Saw Kerf & Edge Trim** — Accounts for blade width and stock edge waste

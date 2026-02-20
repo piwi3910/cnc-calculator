@@ -10,12 +10,12 @@ import (
 // Offcut represents a usable rectangular remnant area left over after cutting.
 type Offcut struct {
 	ID            string  `json:"id"`
-	SheetLabel    string  `json:"sheet_label"`    // Which sheet it came from
-	SheetIndex    int     `json:"sheet_index"`    // Index of the source sheet in the result
-	X             float64 `json:"x"`              // Position on the sheet (mm from left)
-	Y             float64 `json:"y"`              // Position on the sheet (mm from top)
-	Width         float64 `json:"width"`          // Usable width (mm)
-	Height        float64 `json:"height"`         // Usable height (mm)
+	SheetLabel    string  `json:"sheet_label"`     // Which sheet it came from
+	SheetIndex    int     `json:"sheet_index"`     // Index of the source sheet in the result
+	X             float64 `json:"x"`               // Position on the sheet (mm from left)
+	Y             float64 `json:"y"`               // Position on the sheet (mm from top)
+	Width         float64 `json:"width"`           // Usable width (mm)
+	Height        float64 `json:"height"`          // Usable height (mm)
 	PricePerSheet float64 `json:"price_per_sheet"` // Inherited price proportional to area (0 if not set)
 }
 

@@ -457,10 +457,10 @@ type StockSheet struct {
 	Width         float64        `json:"width"`  // mm
 	Height        float64        `json:"height"` // mm
 	Quantity      int            `json:"quantity"`
-	Grain         Grain          `json:"grain"`           // Sheet grain direction (None, Horizontal, Vertical)
+	Grain         Grain          `json:"grain"`              // Sheet grain direction (None, Horizontal, Vertical)
 	Material      string         `json:"material,omitempty"` // Material type (e.g., "Plywood", "MDF"); empty means unspecified
-	Tabs          StockTabConfig `json:"tabs"`            // Override default tab config for this sheet
-	PricePerSheet float64        `json:"price_per_sheet"` // Cost per sheet in user's currency (0 = not set)
+	Tabs          StockTabConfig `json:"tabs"`               // Override default tab config for this sheet
+	PricePerSheet float64        `json:"price_per_sheet"`    // Cost per sheet in user's currency (0 = not set)
 }
 
 func NewStockSheet(label string, w, h float64, qty int) StockSheet {
@@ -553,9 +553,9 @@ type CutSettings struct {
 	CornerOvercut CornerOvercut `json:"corner_overcut"` // Corner relief type: none, dogbone, or tbone
 
 	// Onion skinning (leave thin layer on final pass to prevent part movement)
-	OnionSkinEnabled  bool    `json:"onion_skin_enabled"`  // Enable onion skin on final pass
-	OnionSkinDepth    float64 `json:"onion_skin_depth"`    // Thickness of skin to leave (mm)
-	OnionSkinCleanup  bool    `json:"onion_skin_cleanup"`  // Generate a separate cleanup pass to remove the skin
+	OnionSkinEnabled bool    `json:"onion_skin_enabled"` // Enable onion skin on final pass
+	OnionSkinDepth   float64 `json:"onion_skin_depth"`   // Thickness of skin to leave (mm)
+	OnionSkinCleanup bool    `json:"onion_skin_cleanup"` // Generate a separate cleanup pass to remove the skin
 
 	// Structural integrity cut ordering (interior cuts first, perimeter last)
 	StructuralOrdering bool `json:"structural_ordering"` // Order cuts from center outward for structural integrity
@@ -580,10 +580,10 @@ type CutSettings struct {
 // Each weight is in the range [0,1]. They are normalized internally so their
 // relative proportions determine priority. A weight of 0 disables that objective.
 type OptimizeWeights struct {
-	MinimizeWaste    float64 `json:"minimize_waste"`     // Weight for minimizing material waste (default 1.0)
-	MinimizeSheets   float64 `json:"minimize_sheets"`    // Weight for minimizing number of sheets used (default 0.5)
-	MinimizeCutLen   float64 `json:"minimize_cut_len"`   // Weight for minimizing total cut length (default 0.0)
-	MinimizeJobTime  float64 `json:"minimize_job_time"`  // Weight for minimizing estimated job time (default 0.0)
+	MinimizeWaste   float64 `json:"minimize_waste"`    // Weight for minimizing material waste (default 1.0)
+	MinimizeSheets  float64 `json:"minimize_sheets"`   // Weight for minimizing number of sheets used (default 0.5)
+	MinimizeCutLen  float64 `json:"minimize_cut_len"`  // Weight for minimizing total cut length (default 0.0)
+	MinimizeJobTime float64 `json:"minimize_job_time"` // Weight for minimizing estimated job time (default 0.0)
 }
 
 // DefaultOptimizeWeights returns the default optimization weights.
@@ -640,11 +640,11 @@ type TabZone struct {
 // a clamp or fixture is placed. The optimizer will avoid placing parts in
 // these zones, and the GCode generator can check for dust shoe collisions.
 type ClampZone struct {
-	Label  string  `json:"label"`  // Descriptive label (e.g., "Front-left clamp")
-	X      float64 `json:"x"`      // Distance from left edge (mm)
-	Y      float64 `json:"y"`      // Distance from top edge (mm)
-	Width  float64 `json:"width"`  // Zone width (mm)
-	Height float64 `json:"height"` // Zone height (mm)
+	Label   string  `json:"label"`    // Descriptive label (e.g., "Front-left clamp")
+	X       float64 `json:"x"`        // Distance from left edge (mm)
+	Y       float64 `json:"y"`        // Distance from top edge (mm)
+	Width   float64 `json:"width"`    // Zone width (mm)
+	Height  float64 `json:"height"`   // Zone height (mm)
 	ZHeight float64 `json:"z_height"` // Height above stock surface (mm), used for collision detection
 }
 
@@ -666,15 +666,15 @@ func (cz ClampZone) ToTabZone() TabZone {
 
 // DustShoeCollision describes a potential collision between the dust shoe and a clamp/fixture.
 type DustShoeCollision struct {
-	SheetIndex   int     `json:"sheet_index"`   // 0-based index of the sheet
-	SheetLabel   string  `json:"sheet_label"`   // Label of the stock sheet
-	ClampLabel   string  `json:"clamp_label"`   // Label of the clamp zone
-	PartLabel    string  `json:"part_label"`     // Label of the part being cut near the clamp
-	PartIndex    int     `json:"part_index"`     // Index of the placement on the sheet
-	ToolX        float64 `json:"tool_x"`         // Tool center X position where collision occurs
-	ToolY        float64 `json:"tool_y"`         // Tool center Y position where collision occurs
-	Distance     float64 `json:"distance"`       // Distance from dust shoe edge to clamp edge (negative = overlap)
-	IsDuringCut  bool    `json:"is_during_cut"`  // true if during cutting move, false if during rapid
+	SheetIndex  int     `json:"sheet_index"`   // 0-based index of the sheet
+	SheetLabel  string  `json:"sheet_label"`   // Label of the stock sheet
+	ClampLabel  string  `json:"clamp_label"`   // Label of the clamp zone
+	PartLabel   string  `json:"part_label"`    // Label of the part being cut near the clamp
+	PartIndex   int     `json:"part_index"`    // Index of the placement on the sheet
+	ToolX       float64 `json:"tool_x"`        // Tool center X position where collision occurs
+	ToolY       float64 `json:"tool_y"`        // Tool center Y position where collision occurs
+	Distance    float64 `json:"distance"`      // Distance from dust shoe edge to clamp edge (negative = overlap)
+	IsDuringCut bool    `json:"is_during_cut"` // true if during cutting move, false if during rapid
 }
 
 // GCodeProfile defines a post-processor configuration for different CNC controllers.
@@ -901,17 +901,17 @@ func DefaultSettings() CutSettings {
 		GCodeProfile:     "Generic", // Default GCode profile
 		OptimizeToolpath: false,     // Disabled by default
 
-		PlungeType:      PlungeDirect, // Direct plunge by default
-		RampAngle:       3.0,          // 3 degree ramp angle
-		HelixDiameter:   5.0,          // 5mm helix diameter
-		HelixRevPercent: 50.0,             // 50% of pass depth per revolution
-		CornerOvercut:    CornerOvercutNone, // No corner overcuts by default
-		OnionSkinEnabled: false,             // Onion skinning disabled by default
-		OnionSkinDepth:   0.2,               // 0.2mm thin skin
-		OnionSkinCleanup: false,             // No cleanup pass by default
-		DustShoeEnabled:   false,  // Dust shoe collision detection disabled by default
-		DustShoeWidth:     80.0,   // 80mm default dust shoe diameter
-		DustShoeClearance: 5.0,    // 5mm minimum clearance
+		PlungeType:        PlungeDirect,      // Direct plunge by default
+		RampAngle:         3.0,               // 3 degree ramp angle
+		HelixDiameter:     5.0,               // 5mm helix diameter
+		HelixRevPercent:   50.0,              // 50% of pass depth per revolution
+		CornerOvercut:     CornerOvercutNone, // No corner overcuts by default
+		OnionSkinEnabled:  false,             // Onion skinning disabled by default
+		OnionSkinDepth:    0.2,               // 0.2mm thin skin
+		OnionSkinCleanup:  false,             // No cleanup pass by default
+		DustShoeEnabled:   false,             // Dust shoe collision detection disabled by default
+		DustShoeWidth:     80.0,              // 80mm default dust shoe diameter
+		DustShoeClearance: 5.0,               // 5mm minimum clearance
 		OptimizeWeights:   DefaultOptimizeWeights(),
 		NestingRotations:  2, // Default: 0° and 90° (standard rectangular behavior)
 	}

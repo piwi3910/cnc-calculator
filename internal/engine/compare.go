@@ -15,11 +15,11 @@ type ComparisonScenario struct {
 // ComparisonResult holds the optimization result and computed statistics
 // for a single scenario.
 type ComparisonResult struct {
-	Scenario    ComparisonScenario
-	Result      model.OptimizeResult
-	SheetsUsed  int
-	TotalCuts   int
-	WastePercent float64
+	Scenario      ComparisonScenario
+	Result        model.OptimizeResult
+	SheetsUsed    int
+	TotalCuts     int
+	WastePercent  float64
 	UnplacedCount int
 }
 

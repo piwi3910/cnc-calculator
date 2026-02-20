@@ -816,9 +816,9 @@ func TestMultiObjective_DefaultWeights(t *testing.T) {
 
 func TestMultiObjective_NormalizeWeights(t *testing.T) {
 	w := model.OptimizeWeights{
-		MinimizeWaste:  2.0,
-		MinimizeSheets: 2.0,
-		MinimizeCutLen: 0.0,
+		MinimizeWaste:   2.0,
+		MinimizeSheets:  2.0,
+		MinimizeCutLen:  0.0,
 		MinimizeJobTime: 0.0,
 	}
 	n := w.Normalize()
@@ -840,9 +840,9 @@ func TestMultiObjective_GeneticWithWasteWeight(t *testing.T) {
 	s := defaultTestSettings()
 	s.Algorithm = model.AlgorithmGenetic
 	s.OptimizeWeights = model.OptimizeWeights{
-		MinimizeWaste:  1.0,
-		MinimizeSheets: 0.0,
-		MinimizeCutLen: 0.0,
+		MinimizeWaste:   1.0,
+		MinimizeSheets:  0.0,
+		MinimizeCutLen:  0.0,
 		MinimizeJobTime: 0.0,
 	}
 
@@ -863,9 +863,9 @@ func TestMultiObjective_GeneticWithSheetWeight(t *testing.T) {
 	s := defaultTestSettings()
 	s.Algorithm = model.AlgorithmGenetic
 	s.OptimizeWeights = model.OptimizeWeights{
-		MinimizeWaste:  0.0,
-		MinimizeSheets: 1.0,
-		MinimizeCutLen: 0.0,
+		MinimizeWaste:   0.0,
+		MinimizeSheets:  1.0,
+		MinimizeCutLen:  0.0,
 		MinimizeJobTime: 0.0,
 	}
 
@@ -1117,6 +1117,37 @@ func TestOptimize_OutlinePartWithGrainSkipsMultiRotation(t *testing.T) {
 	opt := New(s)
 	result := opt.Optimize(parts, stocks)
 	assert.Len(t, result.UnplacedParts, 0, "grain part should be placed via normal path")
+}
+
+// TestOptimize_RotationReducesSheetCount verifies that when narrow no-grain parts
+// are placed on a sheet, the optimizer rotates some to fill remaining space rather
+// than spilling onto a second sheet.
+func TestOptimize_RotationReducesSheetCount(t *testing.T) {
+	opt := New(defaultTestSettings())
+
+	// 6 narrow parts: 100x400 each, no grain.
+	// Stock: 500x500. If all placed vertically (100 wide), 5 fit side-by-side (500/100=5),
+	// leaving the 6th unplaced on sheet 1. But if some are rotated (400x100),
+	// they fit in the remaining 500x100 strip at the bottom. All 6 should fit on 1 sheet.
+	parts := []model.Part{}
+	for i := 0; i < 6; i++ {
+		parts = append(parts, model.NewPart("Narrow", 100, 400, 1))
+	}
+	stocks := []model.StockSheet{model.NewStockSheet("Sheet", 500, 500, 5)}
+
+	result := opt.Optimize(parts, stocks)
+
+	assert.Len(t, result.UnplacedParts, 0, "all parts should be placed")
+	assert.Len(t, result.Sheets, 1, "all 6 narrow parts should fit on one 500x500 sheet with rotation")
+
+	// Verify at least one part is rotated
+	rotated := 0
+	for _, p := range result.Sheets[0].Placements {
+		if p.Rotated {
+			rotated++
+		}
+	}
+	assert.Greater(t, rotated, 0, "at least one part should be rotated to fit")
 }
 
 // TestOptimize_DefaultSettings_EndToEnd simulates what the UI does: optimize with

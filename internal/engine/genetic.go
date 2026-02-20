@@ -297,27 +297,39 @@ func (g *geneticOptimizer) decode(c chromosome) model.OptimizeResult {
 			// Check grain compatibility between part and stock sheet
 			canNormal, canRotated := model.CanPlaceWithGrain(pp.part.Grain, stock.Grain)
 
-			if pp.rotated && canRotated {
-				// Try rotated first (chromosome says rotate)
-				if ok, x, y := packer.insert(pp.part.Height, pp.part.Width); ok {
-					sheet.Placements = append(sheet.Placements, model.Placement{
-						Part:    pp.part,
-						X:       x,
-						Y:       y,
-						Rotated: true,
-					})
-					placed = true
-					placedX, placedY = x, y
-					placedRotated = true
+			// When both orientations are allowed, use best-fit comparison
+			if canNormal && canRotated && pp.part.Width != pp.part.Height {
+				normalFit := packer.bestFit(pp.part.Width, pp.part.Height)
+				rotatedFit := packer.bestFit(pp.part.Height, pp.part.Width)
+
+				// Chromosome preference breaks ties; otherwise pick tighter fit
+				preferRotated := pp.rotated
+				if normalFit >= 0 && rotatedFit >= 0 {
+					if rotatedFit < normalFit {
+						preferRotated = true
+					} else if normalFit < rotatedFit {
+						preferRotated = false
+					}
+				} else if normalFit < 0 && rotatedFit >= 0 {
+					preferRotated = true
+				} else if rotatedFit < 0 && normalFit >= 0 {
+					preferRotated = false
 				}
-				// Fall back to normal orientation
-				if !placed && canNormal {
+
+				if preferRotated {
+					if ok, x, y := packer.insert(pp.part.Height, pp.part.Width); ok {
+						sheet.Placements = append(sheet.Placements, model.Placement{
+							Part: pp.part, X: x, Y: y, Rotated: true,
+						})
+						placed = true
+						placedX, placedY = x, y
+						placedRotated = true
+					}
+				}
+				if !placed {
 					if ok, x, y := packer.insert(pp.part.Width, pp.part.Height); ok {
 						sheet.Placements = append(sheet.Placements, model.Placement{
-							Part:    pp.part,
-							X:       x,
-							Y:       y,
-							Rotated: false,
+							Part: pp.part, X: x, Y: y, Rotated: false,
 						})
 						placed = true
 						placedX, placedY = x, y
@@ -325,28 +337,32 @@ func (g *geneticOptimizer) decode(c chromosome) model.OptimizeResult {
 					}
 				}
 			} else {
-				// Try normal orientation first
-				if canNormal {
+				// Grain-restricted or square parts: try preferred orientation first
+				tryRotatedFirst := pp.rotated && canRotated
+				if tryRotatedFirst {
+					if ok, x, y := packer.insert(pp.part.Height, pp.part.Width); ok {
+						sheet.Placements = append(sheet.Placements, model.Placement{
+							Part: pp.part, X: x, Y: y, Rotated: true,
+						})
+						placed = true
+						placedX, placedY = x, y
+						placedRotated = true
+					}
+				}
+				if !placed && canNormal {
 					if ok, x, y := packer.insert(pp.part.Width, pp.part.Height); ok {
 						sheet.Placements = append(sheet.Placements, model.Placement{
-							Part:    pp.part,
-							X:       x,
-							Y:       y,
-							Rotated: false,
+							Part: pp.part, X: x, Y: y, Rotated: false,
 						})
 						placed = true
 						placedX, placedY = x, y
 						placedRotated = false
 					}
 				}
-				// Fall back to rotated if grain allows
-				if !placed && canRotated {
+				if !placed && canRotated && !tryRotatedFirst {
 					if ok, x, y := packer.insert(pp.part.Height, pp.part.Width); ok {
 						sheet.Placements = append(sheet.Placements, model.Placement{
-							Part:    pp.part,
-							X:       x,
-							Y:       y,
-							Rotated: true,
+							Part: pp.part, X: x, Y: y, Rotated: true,
 						})
 						placed = true
 						placedX, placedY = x, y
