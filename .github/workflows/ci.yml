@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev xorg-dev
+
+      - name: Build
+        run: go build ./cmd/cnc-calculator
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev xorg-dev
+
+      - name: Test
+        run: go test ./...
+
+      - name: Test with coverage
+        run: go test -cover ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev xorg-dev
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+  docs-check:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check documentation was updated
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          # Get the list of changed files in this PR
+          changed_files=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+
+          # Check if any Go source files were changed
+          go_changed=$(echo "$changed_files" | grep -E '\.go$' || true)
+
+          if [ -z "$go_changed" ]; then
+            echo "No Go files changed, skipping docs check."
+            exit 0
+          fi
+
+          # Check if README.md or CLAUDE.md was also updated
+          docs_changed=$(echo "$changed_files" | grep -E '(README\.md|CLAUDE\.md)' || true)
+
+          if [ -z "$docs_changed" ]; then
+            echo "::warning::Go source files were changed but neither README.md nor CLAUDE.md was updated."
+            echo ""
+            echo "Changed Go files:"
+            echo "$go_changed"
+            echo ""
+            echo "Please update documentation if your changes affect:"
+            echo "  - Features (README.md features list)"
+            echo "  - Project structure (README.md + CLAUDE.md)"
+            echo "  - Architecture (CLAUDE.md diagram)"
+            echo "  - Workflow or commands (CLAUDE.md)"
+            echo ""
+            echo "If this is a minor internal change with no doc impact, add '[no-docs]' to your PR title to skip this check."
+
+            # Check if PR title contains [no-docs] (using env var to avoid injection)
+            if echo "$PR_TITLE" | grep -qF '[no-docs]'; then
+              echo ""
+              echo "PR title contains [no-docs], skipping docs requirement."
+              exit 0
+            fi
+
+            exit 1
+          fi
+
+          echo "Documentation updated. Changed docs:"
+          echo "$docs_changed"

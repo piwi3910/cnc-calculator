@@ -1,29 +1,52 @@
-# CutOptimizer - Claude Instructions
+# CNCCalculator - Claude Instructions
 
-Project-specific instructions for CutOptimizer development.
+Project-specific instructions for CNCCalculator development.
 
 ## Project Overview
 
-CutOptimizer is a cross-platform desktop CNC cut list optimizer built with Go and Fyne. It generates optimized 2D rectangular cutting layouts and exports GCode for CNC machines.
+CNCCalculator is a cross-platform desktop CNC cut list optimizer built with Go and Fyne. It generates optimized 2D rectangular cutting layouts and exports GCode for CNC machines.
 
 **Tech Stack:**
 - Go 1.22+
 - Fyne v2.5.4 (cross-platform GUI)
 - Single binary distribution, no runtime dependencies
 
+## Documentation (MANDATORY)
+
+**Every code change MUST include documentation updates.** This is enforced by CI.
+
+### What to Update
+
+| Change Type | Update Required |
+|-------------|----------------|
+| New feature | README.md features list, CLAUDE.md if architecture changes |
+| New package/file | README.md project structure, CLAUDE.md code location |
+| API/model change | CLAUDE.md architecture diagram if applicable |
+| New menu item | README.md features list |
+| New dependency | go.mod (automatic), README.md prerequisites if system dep |
+| Workflow change | CLAUDE.md workflow section |
+
+### Rules
+- **README.md** is the user-facing project documentation — keep features list and project structure current
+- **CLAUDE.md** is the developer/AI instructions — keep code location, architecture, and workflow current
+- **CI will check** that PRs touching Go files also touch at least one of README.md or CLAUDE.md
+- When in doubt, update both
+
 ## Code Location
 
 ```
-github.com/pascal/cutoptimizer/
-├── cmd/cnc-calculator/  # Entry point (main.go)
+github.com/piwi3910/cnc-calculator/
+├── cmd/cnc-calculator/     # Entry point (main.go)
 ├── internal/
-│   ├── model/           # Core types (Part, StockSheet, Placement, etc.)
-│   ├── engine/          # Guillotine bin packing optimizer
-│   ├── gcode/           # GCode generator with toolpath + tabs
-│   ├── importer/        # CSV/file import support
-│   ├── ui/              # Main Fyne application UI
-│   │   └── widgets/     # Custom Fyne widgets (SheetCanvas)
-│   └── project/         # Project save/load functionality
+│   ├── model/              # Core types + inventory/library/config types
+│   ├── engine/             # Guillotine packer + genetic algorithm optimizer
+│   ├── gcode/              # GCode generator + parser (for preview)
+│   ├── importer/           # CSV/Excel/DXF import
+│   ├── export/             # PDF export
+│   ├── ui/                 # Main Fyne UI, dialogs, admin, profile editor
+│   │   └── widgets/        # Custom Fyne widgets (SheetCanvas, GCodePreview)
+│   └── project/            # Project/profile/inventory/library/config persistence
+├── .github/workflows/      # CI pipeline
 ├── go.mod
 └── Makefile
 ```
@@ -84,40 +107,52 @@ graph TB
         C[Stock Panel] --> B
         D[Settings Panel] --> B
         E[Results Panel] --> B
-        F[Sheet Canvas Widget] --> E
+        F[Sheet Canvas] --> E
+        G[GCode Preview] --> E
+        H[Admin Menu] --> B
     end
 
     subgraph "Core Engine"
-        B --> G[Optimizer]
-        G --> H[Guillotine Packer]
+        B --> I[Optimizer]
+        I --> J[Guillotine Packer]
+        I --> K[Genetic Algorithm]
     end
 
     subgraph "GCode Generator"
-        B --> I[GCode Generator]
-        I --> J[Toolpath + Tabs]
+        B --> L[GCode Generator]
+        L --> M[Toolpath + Tabs + Lead-in/out]
+        L --> N[Post-Processor Profiles]
     end
 
-    subgraph "Model Layer"
-        K[Part]
-        L[StockSheet]
-        M[Placement]
-        N[OptimizeResult]
-        O[Project]
+    subgraph "Import / Export"
+        B --> O[CSV/Excel Importer]
+        B --> P[DXF Importer]
+        B --> Q[PDF Exporter]
+        B --> R[GCode Exporter]
     end
 
-    style G fill:#e8f5e9
-    style I fill:#e1f5ff
-    style O fill:#fff4e6
+    subgraph "Data Layer"
+        S[Project Save/Load]
+        T[Parts Library]
+        U[Tool/Stock Inventory]
+        V[App Config]
+    end
+
+    style I fill:#e8f5e9
+    style K fill:#e8f5e9
+    style L fill:#e1f5ff
+    style Q fill:#fff4e6
+    style T fill:#f3e5f5
 ```
 
 ## Development Commands
 
 ```bash
 # Run
-make run  # or: go run ./cmd/cutoptimizer
+make run  # or: go run ./cmd/cnc-calculator
 
 # Build
-make build  # or: go build -o cutoptimizer ./cmd/cutoptimizer
+make build  # or: go build -o cnc-calculator ./cmd/cnc-calculator
 
 # Test
 make test  # or: go test ./...
@@ -168,24 +203,6 @@ go test ./internal/engine
 
 ## Module Information
 
-- **Module**: `github.com/pascal/cutoptimizer`
-- **Main package**: `cmd/cutoptimizer`
-- **Internal packages**: `model`, `engine`, `gcode`, `ui`, `project`
-
-## Known Issues / TODO
-
-1. **Stock Selection**: `selectBestStock()` is a TODO in optimizer.go
-2. **Test Coverage**: No test files exist yet
-
-## Feature Roadmap
-
-From README.md (future improvements):
-- Genetic algorithm meta-heuristic
-- DXF import for non-rectangular parts
-- GCode preview with toolpath visualization
-- Multiple stock sheet sizes in one run
-- CSV/Excel import
-- PDF export
-- Undo/redo
-- Lead-in/lead-out arcs
-- Configurable post-processor profiles
+- **Module**: `github.com/piwi3910/cnc-calculator`
+- **Main package**: `cmd/cnc-calculator`
+- **Internal packages**: `model`, `engine`, `gcode`, `importer`, `export`, `ui`, `project`

@@ -1,21 +1,44 @@
-# CutOptimizer
+# CNCCalculator
 
 A cross-platform desktop application for optimizing rectangular cut lists and generating CNC-ready GCode. Built with Go and [Fyne](https://fyne.io/) — produces a single native binary for Windows, macOS, and Linux with no runtime dependencies.
 
 ## Features
 
+### Optimization Engine
 - **2D Bin Packing** — Guillotine-based optimization with Best Area Fit heuristic
+- **Genetic Algorithm** — Alternative optimizer using population-based meta-heuristic for better packing efficiency
 - **Grain Direction** — Supports horizontal/vertical grain constraints
 - **Saw Kerf & Edge Trim** — Accounts for blade width and stock edge waste
 - **Part Rotation** — Automatically rotates parts for better fit (respects grain)
-- **Visual Layout** — Color-coded sheet diagrams showing part placements
+- **Multiple Stock Sizes** — Use different stock sheet sizes in one run with smart selection (trial-packing heuristic)
+
+### CNC & GCode
 - **GCode Export** — Full CNC toolpath generation with:
   - Multi-pass depth stepping
   - Configurable feed/plunge rates and spindle speed
   - Holding tabs to prevent part movement
   - Tool radius compensation (outside cut)
   - Safe Z retract between operations
-- **Project Save/Load** — JSON-based project files (`.cutopt`)
+  - Lead-in/lead-out arcs for smoother entry and exit
+- **GCode Preview** — Visual toolpath simulation with color-coded rapid/feed/plunge moves
+- **Post-Processor Profiles** — Built-in profiles for Grbl, Mach3, LinuxCNC + custom user profiles
+- **DXF Part Outlines** — GCode follows actual part contours for non-rectangular shapes
+
+### Import & Export
+- **CSV Import** — Auto-detect delimiters (comma, semicolon, tab, pipe) and column mapping
+- **Excel Import** — Read .xlsx files with auto header detection
+- **DXF Import** — Import non-rectangular parts from DXF files (LWPOLYLINE, LINE, ARC, CIRCLE)
+- **PDF Export** — Multi-page cut diagrams with dimensions, labels, efficiency stats, and summary
+- **GCode Export** — Per-sheet GCode files with configurable profiles
+- **Project Save/Load** — JSON-based project files (`.cnccalc`)
+
+### User Interface
+- **Visual Layout** — Color-coded sheet diagrams showing part placements and stock tab zones
+- **Undo/Redo** — Full history with Ctrl+Z / Ctrl+Y (Cmd+Z / Cmd+Shift+Z on macOS)
+- **Parts Library** — Save and reuse predefined parts organized by category
+- **Tool & Stock Inventory** — Manage cutting tools and stock sheet presets
+- **Admin Menu** — Application settings, inventory management, data backup/restore
+- **Stock Size Presets** — Common panel sizes (2440x1220, 1220x610, etc.)
 
 ## Prerequisites
 
@@ -34,10 +57,10 @@ make run
 make build
 
 # Cross-compile
-make windows        # produces cutoptimizer.exe
-make darwin-arm64   # produces cutoptimizer-darwin-arm64 (Apple Silicon)
-make darwin-amd64   # produces cutoptimizer-darwin-amd64 (Intel Mac)
-make linux          # produces cutoptimizer-linux
+make windows        # produces cnc-calculator.exe
+make darwin-arm64   # produces cnc-calculator-darwin-arm64 (Apple Silicon)
+make darwin-amd64   # produces cnc-calculator-darwin-amd64 (Intel Mac)
+make linux          # produces cnc-calculator-linux
 ```
 
 ### Packaged Builds (recommended for distribution)
@@ -60,57 +83,105 @@ make test
 ## Project Structure
 
 ```
-cutoptimizer/
-├── cmd/cutoptimizer/
-│   └── main.go              # Entry point
+cnc-calculator/
+├── cmd/cnc-calculator/
+│   └── main.go                 # Entry point
 ├── internal/
 │   ├── model/
-│   │   └── model.go         # Core data types (Part, StockSheet, Placement, etc.)
+│   │   ├── model.go            # Core types (Part, StockSheet, Placement, etc.)
+│   │   ├── inventory.go        # Tool/stock inventory types
+│   │   ├── library.go          # Parts library types
+│   │   └── appconfig.go        # Application configuration
 │   ├── engine/
-│   │   ├── optimizer.go      # Guillotine bin-packing algorithm
-│   │   └── optimizer_test.go
+│   │   ├── optimizer.go        # Guillotine bin-packing algorithm
+│   │   └── genetic.go          # Genetic algorithm optimizer
 │   ├── gcode/
-│   │   ├── generator.go      # GCode toolpath generation
-│   │   └── generator_test.go
+│   │   ├── generator.go        # GCode toolpath generation
+│   │   └── parser.go           # GCode parser for preview
+│   ├── importer/
+│   │   ├── importer.go         # CSV/Excel import with auto-detection
+│   │   └── dxf.go              # DXF file import
+│   ├── export/
+│   │   └── pdf.go              # PDF export of cut diagrams
 │   ├── project/
-│   │   └── project.go        # Save/load project files
+│   │   ├── project.go          # Save/load project files
+│   │   ├── profiles.go         # Custom GCode profile persistence
+│   │   ├── inventory.go        # Tool/stock inventory persistence
+│   │   ├── library.go          # Parts library persistence
+│   │   └── appconfig.go        # App config persistence
 │   └── ui/
-│       ├── app.go            # Main UI (tabs, toolbar, dialogs)
+│       ├── app.go              # Main UI (tabs, menus, dialogs)
+│       ├── history.go          # Undo/redo history manager
+│       ├── inventory.go        # Inventory management dialogs
+│       ├── library.go          # Parts library dialogs
+│       ├── admin.go            # Admin menu and settings
+│       ├── profile_editor.go   # GCode profile editor
 │       └── widgets/
-│           └── sheet_canvas.go  # Visual sheet layout renderer
+│           ├── sheet_canvas.go    # Visual sheet layout renderer
+│           └── gcode_preview.go   # GCode toolpath preview
+├── .github/workflows/
+│   └── ci.yml                  # CI: build, test, lint, docs check
 ├── go.mod
 ├── Makefile
+├── CLAUDE.md
 └── README.md
 ```
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────┐
-│                    UI Layer (Fyne)                   │
-│  ┌──────────┐ ┌───────────┐ ┌────────┐ ┌────────┐  │
-│  │  Parts   │ │   Stock   │ │Settings│ │Results │  │
-│  │  Panel   │ │   Panel   │ │ Panel  │ │ Panel  │  │
-│  └──────────┘ └───────────┘ └────────┘ └────────┘  │
-├─────────────────────────────────────────────────────┤
-│                  Core Engine                         │
-│  ┌──────────────────┐  ┌──────────────────────────┐ │
-│  │ Guillotine Packer│  │   GCode Generator        │ │
-│  │ (bin-packing)    │  │   (toolpath + tabs)       │ │
-│  └──────────────────┘  └──────────────────────────┘ │
-├─────────────────────────────────────────────────────┤
-│  Model Layer: Part, StockSheet, Placement, Project  │
-└─────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph "UI Layer (Fyne)"
+        A[Parts Panel] --> B[App]
+        C[Stock Panel] --> B
+        D[Settings Panel] --> B
+        E[Results Panel] --> B
+        F[Sheet Canvas] --> E
+        G[GCode Preview] --> E
+        H[Admin Menu] --> B
+    end
+
+    subgraph "Core Engine"
+        B --> I[Optimizer]
+        I --> J[Guillotine Packer]
+        I --> K[Genetic Algorithm]
+    end
+
+    subgraph "GCode Generator"
+        B --> L[GCode Generator]
+        L --> M[Toolpath + Tabs + Lead-in/out]
+        L --> N[Post-Processor Profiles]
+    end
+
+    subgraph "Import / Export"
+        B --> O[CSV/Excel Importer]
+        B --> P[DXF Importer]
+        B --> Q[PDF Exporter]
+        B --> R[GCode Exporter]
+    end
+
+    subgraph "Data Layer"
+        S[Project Save/Load]
+        T[Parts Library]
+        U[Tool/Stock Inventory]
+        V[App Config]
+    end
+
+    style I fill:#e8f5e9
+    style K fill:#e8f5e9
+    style L fill:#e1f5ff
+    style Q fill:#fff4e6
+    style T fill:#f3e5f5
 ```
 
-## Future Improvements
+## Contributing
 
-- [ ] Improved optimizer: genetic algorithm meta-heuristic for better packing
-- [ ] DXF import for non-rectangular parts
-- [ ] GCode preview with simulated toolpath visualization
-- [ ] Multiple stock sheet sizes in one optimization run (best-fit selection)
-- [ ] CSV/Excel import for part lists
-- [ ] PDF export of cut diagrams
-- [ ] Undo/redo for part/stock edits
-- [ ] Lead-in/lead-out arcs for smoother CNC entry
-- [ ] Configurable GCode post-processor profiles (Grbl, Mach3, LinuxCNC)
+1. Create a GitHub issue describing the change
+2. Create a feature branch: `issue-NUM-description`
+3. Implement with tests
+4. Update README.md and CLAUDE.md if your changes affect features, architecture, or workflow
+5. Create a PR referencing the issue
+
+## License
+
+MIT
