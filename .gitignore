@@ -1,6 +1,6 @@
-# Binaries
-cnc-calculator
-cutoptimizer
+# Binaries (root level only, not cmd/cnc-calculator/)
+/cnc-calculator
+/cutoptimizer
 *.exe
 *.dll
 *.so

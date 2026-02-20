@@ -64,12 +64,21 @@ func NewStockSheet(label string, w, h float64, qty int) StockSheet {
 	}
 }
 
+// Algorithm represents the optimizer algorithm to use.
+type Algorithm string
+
+const (
+	AlgorithmGuillotine Algorithm = "guillotine" // Greedy guillotine best-area-fit (fast)
+	AlgorithmGenetic    Algorithm = "genetic"    // Genetic algorithm meta-heuristic (slower, often better)
+)
+
 // CutSettings holds optimizer and CNC configuration.
 type CutSettings struct {
 	// Optimizer settings
-	KerfWidth      float64 `json:"kerf_width"`      // Blade/bit width in mm
-	EdgeTrim       float64 `json:"edge_trim"`       // Trim around sheet edges in mm
-	GuillotineOnly bool    `json:"guillotine_only"` // Restrict to guillotine cuts
+	Algorithm      Algorithm `json:"algorithm"`       // Optimizer algorithm: "guillotine" or "genetic"
+	KerfWidth      float64   `json:"kerf_width"`      // Blade/bit width in mm
+	EdgeTrim       float64   `json:"edge_trim"`       // Trim around sheet edges in mm
+	GuillotineOnly bool      `json:"guillotine_only"` // Restrict to guillotine cuts
 
 	// CNC / GCode settings
 	ToolDiameter float64 `json:"tool_diameter"` // End mill diameter in mm
@@ -250,6 +259,7 @@ func GetProfileNames() []string {
 
 func DefaultSettings() CutSettings {
 	return CutSettings{
+		Algorithm:       AlgorithmGuillotine,
 		KerfWidth:       3.2,
 		EdgeTrim:        10.0,
 		GuillotineOnly:  false,
