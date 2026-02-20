@@ -58,10 +58,10 @@ func (a *App) showToolInventoryDialog() {
 				widget.NewLabel(fmt.Sprintf("%d", t.SpindleSpeed)),
 				widget.NewLabel(fmt.Sprintf("%.1f mm", t.CutDepth)),
 				widget.NewLabel(fmt.Sprintf("%.1f mm", t.PassDepth)),
-				widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
+				newIconButtonWithTooltip(theme.DocumentCreateIcon(), "Edit Tool", func() {
 					a.showEditToolDialog(idx, refreshList)
 				}),
-				widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
+				newIconButtonWithTooltip(theme.DeleteIcon(), "Delete Tool", func() {
 					a.inventory.Tools = append(a.inventory.Tools[:idx], a.inventory.Tools[idx+1:]...)
 					a.saveInventory()
 					refreshList()
@@ -286,10 +286,10 @@ func (a *App) showStockInventoryDialog() {
 				widget.NewLabel(fmt.Sprintf("%.0f mm", s.Height)),
 				widget.NewLabel(s.Material),
 				widget.NewLabel(priceLabel),
-				widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
+				newIconButtonWithTooltip(theme.DocumentCreateIcon(), "Edit Stock Preset", func() {
 					a.showEditStockPresetDialog(idx, refreshList)
 				}),
-				widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
+				newIconButtonWithTooltip(theme.DeleteIcon(), "Delete Stock Preset", func() {
 					a.inventory.Stocks = append(a.inventory.Stocks[:idx], a.inventory.Stocks[idx+1:]...)
 					a.saveInventory()
 					refreshList()

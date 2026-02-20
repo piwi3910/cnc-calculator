@@ -184,9 +184,11 @@ func (r *gcodePreviewRenderer) rebuild() {
 	bg.Move(fyne.NewPos(offsetX, offsetY))
 	r.objects = append(r.objects, bg)
 
-	// Stock border
+	// Stock border — use theme foreground with alpha for theme awareness
 	border := canvas.NewRectangle(color.Transparent)
-	border.StrokeColor = color.NRGBA{R: 80, G: 80, B: 80, A: 255}
+	fgColor := theme.ForegroundColor()
+	fgR, fgG, fgB, _ := fgColor.RGBA()
+	border.StrokeColor = color.NRGBA{R: uint8(fgR >> 8), G: uint8(fgG >> 8), B: uint8(fgB >> 8), A: 180}
 	border.StrokeWidth = 2
 	border.Resize(fyne.NewSize(canvasW, canvasH))
 	border.Move(fyne.NewPos(offsetX, offsetY))
@@ -211,9 +213,10 @@ func (r *gcodePreviewRenderer) rebuild() {
 		partBorder.Move(fyne.NewPos(px, py))
 		r.objects = append(r.objects, partBorder)
 
-		// Part label
+		// Part label — use adaptive text color based on colorPart luminance
 		if pw > 40 && ph > 18 {
-			label := canvas.NewText(p.Part.Label, color.NRGBA{R: 50, G: 70, B: 120, A: 200})
+			labelColor := contrastTextColor(colorPart)
+			label := canvas.NewText(p.Part.Label, labelColor)
 			label.TextSize = 10
 			label.Move(fyne.NewPos(px+3, py+2))
 			r.objects = append(r.objects, label)
