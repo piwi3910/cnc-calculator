@@ -45,11 +45,12 @@ func (tp ToolProfile) ApplyToSettings(s *CutSettings) {
 
 // StockPreset represents a reusable stock sheet definition.
 type StockPreset struct {
-	ID       string  `json:"id"`
-	Name     string  `json:"name"`
-	Width    float64 `json:"width"`
-	Height   float64 `json:"height"`
-	Material string  `json:"material"`
+	ID            string  `json:"id"`
+	Name          string  `json:"name"`
+	Width         float64 `json:"width"`
+	Height        float64 `json:"height"`
+	Material      string  `json:"material"`
+	PricePerSheet float64 `json:"price_per_sheet"` // Cost per sheet in user's currency
 }
 
 // NewStockPreset creates a new StockPreset with a generated ID.
@@ -63,9 +64,18 @@ func NewStockPreset(name string, width, height float64, material string) StockPr
 	}
 }
 
+// NewStockPresetWithPrice creates a new StockPreset with a generated ID and price.
+func NewStockPresetWithPrice(name string, width, height float64, material string, price float64) StockPreset {
+	sp := NewStockPreset(name, width, height, material)
+	sp.PricePerSheet = price
+	return sp
+}
+
 // ToStockSheet converts a StockPreset into a StockSheet with the given quantity.
 func (sp StockPreset) ToStockSheet(qty int) StockSheet {
-	return NewStockSheet(sp.Name, sp.Width, sp.Height, qty)
+	sheet := NewStockSheet(sp.Name, sp.Width, sp.Height, qty)
+	sheet.PricePerSheet = sp.PricePerSheet
+	return sheet
 }
 
 // Inventory holds the user's saved tool profiles and stock presets.

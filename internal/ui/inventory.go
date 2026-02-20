@@ -226,11 +226,12 @@ func (a *App) showStockInventoryDialog() {
 			return
 		}
 
-		header := container.NewGridWithColumns(6,
+		header := container.NewGridWithColumns(7,
 			widget.NewLabelWithStyle("Name", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			widget.NewLabelWithStyle("Width", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			widget.NewLabelWithStyle("Height", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			widget.NewLabelWithStyle("Material", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			widget.NewLabelWithStyle("Price/Sheet", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{}),
 			widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{}),
 		)
@@ -240,11 +241,16 @@ func (a *App) showStockInventoryDialog() {
 		for i := range a.inventory.Stocks {
 			idx := i
 			s := a.inventory.Stocks[idx]
-			row := container.NewGridWithColumns(6,
+			priceLabel := "-"
+			if s.PricePerSheet > 0 {
+				priceLabel = fmt.Sprintf("%.2f", s.PricePerSheet)
+			}
+			row := container.NewGridWithColumns(7,
 				widget.NewLabel(s.Name),
 				widget.NewLabel(fmt.Sprintf("%.0f mm", s.Width)),
 				widget.NewLabel(fmt.Sprintf("%.0f mm", s.Height)),
 				widget.NewLabel(s.Material),
+				widget.NewLabel(priceLabel),
 				widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
 					a.showEditStockPresetDialog(idx, refreshList)
 				}),
@@ -300,12 +306,17 @@ func (a *App) showAddStockPresetDialog(onDone func()) {
 	materialEntry.SetPlaceHolder("e.g., Plywood, MDF, Acrylic")
 	materialEntry.SetText("Plywood")
 
+	priceEntry := widget.NewEntry()
+	priceEntry.SetPlaceHolder("0.00 (optional)")
+	priceEntry.SetText("0")
+
 	form := dialog.NewForm("Add Stock Preset", "Add", "Cancel",
 		[]*widget.FormItem{
 			widget.NewFormItem("Name", nameEntry),
 			widget.NewFormItem("Width (mm)", widthEntry),
 			widget.NewFormItem("Height (mm)", heightEntry),
 			widget.NewFormItem("Material", materialEntry),
+			widget.NewFormItem("Price per Sheet", priceEntry),
 		},
 		func(ok bool) {
 			if !ok {
@@ -318,14 +329,15 @@ func (a *App) showAddStockPresetDialog(onDone func()) {
 				return
 			}
 
-			preset := model.NewStockPreset(nameEntry.Text, w, h, materialEntry.Text)
+			price, _ := strconv.ParseFloat(priceEntry.Text, 64)
+			preset := model.NewStockPresetWithPrice(nameEntry.Text, w, h, materialEntry.Text, price)
 			a.inventory.Stocks = append(a.inventory.Stocks, preset)
 			a.saveInventory()
 			onDone()
 		},
 		a.window,
 	)
-	form.Resize(fyne.NewSize(400, 350))
+	form.Resize(fyne.NewSize(400, 400))
 	form.Show()
 }
 
@@ -344,12 +356,16 @@ func (a *App) showEditStockPresetDialog(idx int, onDone func()) {
 	materialEntry := widget.NewEntry()
 	materialEntry.SetText(s.Material)
 
+	priceEntry := widget.NewEntry()
+	priceEntry.SetText(fmt.Sprintf("%.2f", s.PricePerSheet))
+
 	form := dialog.NewForm("Edit Stock Preset", "Save", "Cancel",
 		[]*widget.FormItem{
 			widget.NewFormItem("Name", nameEntry),
 			widget.NewFormItem("Width (mm)", widthEntry),
 			widget.NewFormItem("Height (mm)", heightEntry),
 			widget.NewFormItem("Material", materialEntry),
+			widget.NewFormItem("Price per Sheet", priceEntry),
 		},
 		func(ok bool) {
 			if !ok {
@@ -359,12 +375,13 @@ func (a *App) showEditStockPresetDialog(idx int, onDone func()) {
 			a.inventory.Stocks[idx].Width, _ = strconv.ParseFloat(widthEntry.Text, 64)
 			a.inventory.Stocks[idx].Height, _ = strconv.ParseFloat(heightEntry.Text, 64)
 			a.inventory.Stocks[idx].Material = materialEntry.Text
+			a.inventory.Stocks[idx].PricePerSheet, _ = strconv.ParseFloat(priceEntry.Text, 64)
 			a.saveInventory()
 			onDone()
 		},
 		a.window,
 	)
-	form.Resize(fyne.NewSize(400, 350))
+	form.Resize(fyne.NewSize(400, 400))
 	form.Show()
 }
 
