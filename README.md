@@ -36,6 +36,7 @@ A cross-platform desktop application for optimizing rectangular cut lists and ge
 
 ### User Interface
 - **Visual Layout** — Color-coded sheet diagrams showing part placements and stock tab zones
+- **Zoomable Canvas** — Mouse wheel zoom (centered on cursor) and click-and-drag panning on sheet layout views, with zoom in/out buttons and reset
 - **Undo/Redo** — Full history with Ctrl+Z / Ctrl+Y (Cmd+Z / Cmd+Shift+Z on macOS)
 - **Parts Library** — Save and reuse predefined parts organized by category
 - **Tool & Stock Inventory** — Manage cutting tools and stock sheet presets
