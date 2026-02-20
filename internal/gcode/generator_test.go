@@ -241,6 +241,63 @@ func TestMultiplePasses_LeadInOutOnEach(t *testing.T) {
 	}
 }
 
+func TestStockThickness_OverridesCutDepth(t *testing.T) {
+	settings := newTestSettings()
+	settings.CutDepth = 18.0 // Global default
+	settings.PassDepth = 2.0 // 2mm per pass
+	gen := New(settings)
+
+	// Sheet with 6mm acrylic — should produce 3 passes (6/2=3), not 9 (18/2=9)
+	sheet := newTestSheet()
+	sheet.Stock.Thickness = 6.0
+	code := gen.GenerateSheet(sheet, 1)
+
+	// Header should show 6mm depth, 3 passes
+	if !strings.Contains(code, "Depth: 6.0mm") {
+		t.Error("expected header to show 6.0mm depth from stock thickness")
+	}
+	if !strings.Contains(code, "3 passes") {
+		t.Error("expected header to show 3 passes for 6mm/2mm")
+	}
+
+	// Should have exactly 3 Z plunges (Z-2, Z-4, Z-6)
+	plungeCount := strings.Count(code, "Z-2.0")
+	plungeCount += strings.Count(code, "Z-4.0")
+	plungeCount += strings.Count(code, "Z-6.0")
+	if plungeCount < 3 {
+		t.Errorf("expected at least 3 Z plunge depths for 3 passes, got %d", plungeCount)
+	}
+
+	// Should NOT have Z-8 or deeper (which would happen with 18mm cut depth)
+	if strings.Contains(code, "Z-8.0") || strings.Contains(code, "Z-12.0") {
+		t.Error("should not cut deeper than stock thickness (6mm)")
+	}
+
+	// Verify generator settings restored after call
+	if gen.Settings.CutDepth != 18.0 {
+		t.Errorf("expected CutDepth restored to 18.0, got %.1f", gen.Settings.CutDepth)
+	}
+}
+
+func TestStockThickness_ZeroUsesGlobalCutDepth(t *testing.T) {
+	settings := newTestSettings()
+	settings.CutDepth = 12.0
+	settings.PassDepth = 6.0 // 2 passes
+	gen := New(settings)
+
+	// Sheet with zero thickness — should use global CutDepth (12mm)
+	sheet := newTestSheet()
+	sheet.Stock.Thickness = 0
+	code := gen.GenerateSheet(sheet, 1)
+
+	if !strings.Contains(code, "Depth: 12.0mm") {
+		t.Error("expected header to show 12.0mm depth from global CutDepth when thickness is 0")
+	}
+	if !strings.Contains(code, "2 passes") {
+		t.Error("expected 2 passes for 12mm/6mm")
+	}
+}
+
 func TestDefaultSettings_LeadInOutDisabled(t *testing.T) {
 	s := model.DefaultSettings()
 	if s.LeadInRadius != 0 {

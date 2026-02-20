@@ -23,7 +23,16 @@ func New(settings model.CutSettings) *Generator {
 }
 
 // GenerateSheet produces GCode for a single sheet's placements.
+// If the stock sheet has a non-zero Thickness, it overrides CutDepth so that
+// multi-pass calculations are based on the actual material being cut.
 func (g *Generator) GenerateSheet(sheet model.SheetResult, sheetIndex int) string {
+	// Use stock thickness as cut depth when available
+	origCutDepth := g.Settings.CutDepth
+	if sheet.Stock.Thickness > 0 {
+		g.Settings.CutDepth = sheet.Stock.Thickness
+	}
+	defer func() { g.Settings.CutDepth = origCutDepth }()
+
 	var b strings.Builder
 
 	g.writeHeader(&b, sheet, sheetIndex)
@@ -223,8 +232,9 @@ func (g *Generator) writeHeader(b *strings.Builder, sheet model.SheetResult, idx
 	b.WriteString(p.CommentPrefix)
 	b.WriteString(fmt.Sprintf(" Tool: %.1fmm, Feed: %.0f mm/min, Plunge: %.0f mm/min\n",
 		g.Settings.ToolDiameter, g.Settings.FeedRate, g.Settings.PlungeRate))
+	numPasses := int(math.Ceil(g.Settings.CutDepth / g.Settings.PassDepth))
 	b.WriteString(p.CommentPrefix)
-	b.WriteString(fmt.Sprintf(" Depth: %.1fmm in %.1fmm passes\n", g.Settings.CutDepth, g.Settings.PassDepth))
+	b.WriteString(fmt.Sprintf(" Depth: %.1fmm in %.1fmm passes (%d passes)\n", g.Settings.CutDepth, g.Settings.PassDepth, numPasses))
 	b.WriteString(p.CommentPrefix)
 	b.WriteString(fmt.Sprintf(" Profile: %s\n", p.Name))
 	b.WriteString("\n")

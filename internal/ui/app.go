@@ -1125,8 +1125,8 @@ func (a *App) buildSettingsPanel() fyne.CanvasObject {
 		widget.NewLabel("Plunge Rate (mm/min)"), floatEntry(&s.PlungeRate),
 		widget.NewLabel("Spindle Speed (RPM)"), intEntry(&s.SpindleSpeed),
 		widget.NewLabel("Safe Z Height (mm)"), floatEntry(&s.SafeZ),
-		widget.NewLabel("Material Thickness (mm)"), floatEntry(&s.CutDepth),
-		widget.NewLabel("Pass Depth (mm)"), floatEntry(&s.PassDepth),
+		widget.NewLabel("Default Cut Depth (mm)"), floatEntry(&s.CutDepth),
+		widget.NewLabel("Depth per Pass (mm)"), floatEntry(&s.PassDepth),
 		widget.NewLabel("Optimize Toolpath Order"), optimizeToolpathCheck,
 		widget.NewLabel("Structural Cut Ordering"), structuralOrderCheck,
 	))
