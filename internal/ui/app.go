@@ -522,7 +522,23 @@ func (a *App) buildSettingsPanel() fyne.CanvasObject {
 		return e
 	}
 
+	algorithmSelect := widget.NewSelect([]string{"Guillotine (Fast)", "Genetic Algorithm (Better)"}, func(selected string) {
+		switch selected {
+		case "Genetic Algorithm (Better)":
+			s.Algorithm = model.AlgorithmGenetic
+		default:
+			s.Algorithm = model.AlgorithmGuillotine
+		}
+	})
+	switch s.Algorithm {
+	case model.AlgorithmGenetic:
+		algorithmSelect.SetSelected("Genetic Algorithm (Better)")
+	default:
+		algorithmSelect.SetSelected("Guillotine (Fast)")
+	}
+
 	optimizerSection := widget.NewCard("Optimizer", "", container.NewGridWithColumns(2,
+		widget.NewLabel("Algorithm"), algorithmSelect,
 		widget.NewLabel("Kerf / Blade Width (mm)"), floatEntry(&s.KerfWidth),
 		widget.NewLabel("Edge Trim (mm)"), floatEntry(&s.EdgeTrim),
 		widget.NewLabel("Guillotine Cuts Only"), widget.NewCheck("", func(b bool) { s.GuillotineOnly = b }),

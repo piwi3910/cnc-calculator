@@ -16,8 +16,16 @@ func New(settings model.CutSettings) *Optimizer {
 }
 
 // Optimize takes parts and stock sheets, returns an optimized layout.
-// Uses a guillotine-based shelf algorithm with best-fit decreasing heuristic.
+// Dispatches to the appropriate algorithm based on settings.
 func (o *Optimizer) Optimize(parts []model.Part, stocks []model.StockSheet) model.OptimizeResult {
+	if o.Settings.Algorithm == model.AlgorithmGenetic {
+		return OptimizeGenetic(o.Settings, parts, stocks)
+	}
+	return o.optimizeGuillotine(parts, stocks)
+}
+
+// optimizeGuillotine uses a guillotine-based shelf algorithm with best-fit decreasing heuristic.
+func (o *Optimizer) optimizeGuillotine(parts []model.Part, stocks []model.StockSheet) model.OptimizeResult {
 	// Expand parts by quantity into individual placement candidates
 	var expanded []model.Part
 	for _, p := range parts {
