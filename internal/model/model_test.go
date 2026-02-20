@@ -162,3 +162,50 @@ func TestBuiltInProfilesMarkedCorrectly(t *testing.T) {
 		}
 	}
 }
+
+func TestClampZoneOverlaps(t *testing.T) {
+	cz := ClampZone{Label: "Test", X: 100, Y: 100, Width: 50, Height: 50}
+
+	tests := []struct {
+		name     string
+		x, y     float64
+		w, h     float64
+		expected bool
+	}{
+		{"fully inside", 110, 110, 20, 20, true},
+		{"overlapping top-left", 80, 80, 30, 30, true},
+		{"overlapping bottom-right", 140, 140, 20, 20, true},
+		{"adjacent left (no overlap)", 50, 100, 50, 50, false},
+		{"adjacent right (no overlap)", 150, 100, 50, 50, false},
+		{"adjacent top (no overlap)", 100, 50, 50, 50, false},
+		{"adjacent bottom (no overlap)", 100, 150, 50, 50, false},
+		{"completely outside", 200, 200, 50, 50, false},
+		{"covering entire zone", 50, 50, 200, 200, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := cz.Overlaps(tt.x, tt.y, tt.w, tt.h)
+			if result != tt.expected {
+				t.Errorf("ClampZone.Overlaps(%v, %v, %v, %v) = %v, want %v",
+					tt.x, tt.y, tt.w, tt.h, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestClampZoneToTabZone(t *testing.T) {
+	cz := ClampZone{Label: "Test", X: 10, Y: 20, Width: 30, Height: 40, ZHeight: 25}
+	tz := cz.ToTabZone()
+
+	if tz.X != 10 || tz.Y != 20 || tz.Width != 30 || tz.Height != 40 {
+		t.Errorf("ToTabZone() produced incorrect values: %+v", tz)
+	}
+}
+
+func TestDefaultSettingsHasNoClampZones(t *testing.T) {
+	s := DefaultSettings()
+	if len(s.ClampZones) != 0 {
+		t.Errorf("expected no clamp zones by default, got %d", len(s.ClampZones))
+	}
+}

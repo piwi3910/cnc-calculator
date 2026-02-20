@@ -139,49 +139,61 @@ func (o *Optimizer) calculateFreeRects(stock model.StockSheet, tabConfig model.S
 		h: stock.Height - 2*o.Settings.EdgeTrim,
 	}
 
-	// If no tabs enabled, return single rect
-	if !tabConfig.Enabled {
-		return []rect{baseRect}
+	// Get exclusion zones from stock tabs
+	var exclusions []model.TabZone
+	if tabConfig.Enabled {
+		if tabConfig.AdvancedMode {
+			exclusions = tabConfig.CustomZones
+		} else {
+			// Simple mode: convert padding to exclusion zones
+			if tabConfig.TopPadding > 0 {
+				exclusions = append(exclusions, model.TabZone{
+					X:      0,
+					Y:      0,
+					Width:  stock.Width,
+					Height: tabConfig.TopPadding,
+				})
+			}
+			if tabConfig.BottomPadding > 0 {
+				exclusions = append(exclusions, model.TabZone{
+					X:      0,
+					Y:      stock.Height - tabConfig.BottomPadding,
+					Width:  stock.Width,
+					Height: tabConfig.BottomPadding,
+				})
+			}
+			if tabConfig.LeftPadding > 0 {
+				exclusions = append(exclusions, model.TabZone{
+					X:      0,
+					Y:      0,
+					Width:  tabConfig.LeftPadding,
+					Height: stock.Height,
+				})
+			}
+			if tabConfig.RightPadding > 0 {
+				exclusions = append(exclusions, model.TabZone{
+					X:      stock.Width - tabConfig.RightPadding,
+					Y:      0,
+					Width:  tabConfig.RightPadding,
+					Height: stock.Height,
+				})
+			}
+		}
 	}
 
-	// Get exclusion zones
-	var exclusions []model.TabZone
-	if tabConfig.AdvancedMode {
-		exclusions = tabConfig.CustomZones
-	} else {
-		// Simple mode: convert padding to exclusion zones
-		if tabConfig.TopPadding > 0 {
-			exclusions = append(exclusions, model.TabZone{
-				X:      0,
-				Y:      0,
-				Width:  stock.Width,
-				Height: tabConfig.TopPadding,
-			})
-		}
-		if tabConfig.BottomPadding > 0 {
-			exclusions = append(exclusions, model.TabZone{
-				X:      0,
-				Y:      stock.Height - tabConfig.BottomPadding,
-				Width:  stock.Width,
-				Height: tabConfig.BottomPadding,
-			})
-		}
-		if tabConfig.LeftPadding > 0 {
-			exclusions = append(exclusions, model.TabZone{
-				X:      0,
-				Y:      0,
-				Width:  tabConfig.LeftPadding,
-				Height: stock.Height,
-			})
-		}
-		if tabConfig.RightPadding > 0 {
-			exclusions = append(exclusions, model.TabZone{
-				X:      stock.Width - tabConfig.RightPadding,
-				Y:      0,
-				Width:  tabConfig.RightPadding,
-				Height: stock.Height,
-			})
-		}
+	// Add clamp zone exclusions (always applied regardless of tab config)
+	for _, cz := range o.Settings.ClampZones {
+		exclusions = append(exclusions, model.TabZone{
+			X:      cz.X,
+			Y:      cz.Y,
+			Width:  cz.Width,
+			Height: cz.Height,
+		})
+	}
+
+	// If no exclusions at all, return the base rect directly
+	if len(exclusions) == 0 {
+		return []rect{baseRect}
 	}
 
 	// Subtract exclusions from base rect to get free rectangles

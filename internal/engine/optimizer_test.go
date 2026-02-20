@@ -389,3 +389,96 @@ func TestOptimize_NoGrainPartOnGrainStock(t *testing.T) {
 	require.Len(t, result.Sheets, 1)
 	assert.True(t, result.Sheets[0].Placements[0].Rotated, "should be rotated to fit")
 }
+
+// ─── Clamp Zone Tests ────────────────────────────────────
+
+func TestOptimize_ClampZoneExclusion(t *testing.T) {
+	// A clamp zone that covers the top-left corner should prevent parts from
+	// being placed there, forcing them into the remaining space.
+	settings := defaultTestSettings()
+	settings.ClampZones = []model.ClampZone{
+		{Label: "Clamp1", X: 0, Y: 0, Width: 200, Height: 200},
+	}
+
+	opt := New(settings)
+
+	// Part that would normally go at origin (0,0) but can't due to clamp
+	parts := []model.Part{model.NewPart("A", 150, 150, 1)}
+	stocks := []model.StockSheet{model.NewStockSheet("Sheet", 1000, 600, 1)}
+
+	result := opt.Optimize(parts, stocks)
+
+	require.Len(t, result.UnplacedParts, 0, "part should still be placed")
+	require.Len(t, result.Sheets, 1)
+
+	p := result.Sheets[0].Placements[0]
+	// The part should NOT overlap with the clamp zone at (0,0,200,200)
+	clamp := settings.ClampZones[0]
+	overlaps := clamp.Overlaps(p.X, p.Y, p.PlacedWidth(), p.PlacedHeight())
+	assert.False(t, overlaps, "part should not overlap with clamp zone; placed at (%.1f, %.1f)", p.X, p.Y)
+}
+
+func TestOptimize_ClampZoneBlocksPlacement(t *testing.T) {
+	// If clamp zones cover most of the sheet, parts that don't fit in the
+	// remaining space should end up unplaced.
+	settings := defaultTestSettings()
+	// Cover almost all of a 500x500 sheet with clamp zones
+	settings.ClampZones = []model.ClampZone{
+		{Label: "BigClamp", X: 0, Y: 0, Width: 500, Height: 400},
+	}
+
+	opt := New(settings)
+
+	// Part is 200x200, remaining space after clamp is 500x100 (bottom strip)
+	parts := []model.Part{model.NewPart("A", 200, 200, 1)}
+	stocks := []model.StockSheet{model.NewStockSheet("Sheet", 500, 500, 1)}
+
+	result := opt.Optimize(parts, stocks)
+
+	assert.Len(t, result.UnplacedParts, 1, "part should not fit in remaining space")
+}
+
+func TestOptimize_MultipleClampZones(t *testing.T) {
+	// Multiple clamp zones in different corners should still allow parts
+	// to be placed in the center.
+	settings := defaultTestSettings()
+	settings.ClampZones = []model.ClampZone{
+		{Label: "TL", X: 0, Y: 0, Width: 100, Height: 100},
+		{Label: "TR", X: 900, Y: 0, Width: 100, Height: 100},
+		{Label: "BL", X: 0, Y: 500, Width: 100, Height: 100},
+		{Label: "BR", X: 900, Y: 500, Width: 100, Height: 100},
+	}
+
+	opt := New(settings)
+
+	parts := []model.Part{model.NewPart("Center", 300, 200, 1)}
+	stocks := []model.StockSheet{model.NewStockSheet("Sheet", 1000, 600, 1)}
+
+	result := opt.Optimize(parts, stocks)
+
+	require.Len(t, result.UnplacedParts, 0, "part should fit in space between clamps")
+	require.Len(t, result.Sheets, 1)
+
+	// Verify no overlap with any clamp zone
+	p := result.Sheets[0].Placements[0]
+	for _, cz := range settings.ClampZones {
+		assert.False(t, cz.Overlaps(p.X, p.Y, p.PlacedWidth(), p.PlacedHeight()),
+			"part should not overlap with clamp zone %s", cz.Label)
+	}
+}
+
+func TestOptimize_NoClampZones(t *testing.T) {
+	// Without clamp zones, optimizer should work as normal.
+	settings := defaultTestSettings()
+	settings.ClampZones = nil
+
+	opt := New(settings)
+
+	parts := []model.Part{model.NewPart("A", 500, 300, 1)}
+	stocks := []model.StockSheet{model.NewStockSheet("Sheet", 1000, 600, 1)}
+
+	result := opt.Optimize(parts, stocks)
+
+	assert.Len(t, result.UnplacedParts, 0)
+	assert.Len(t, result.Sheets, 1)
+}

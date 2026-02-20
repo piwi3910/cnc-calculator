@@ -351,6 +351,9 @@ type CutSettings struct {
 	OnionSkinEnabled  bool    `json:"onion_skin_enabled"`  // Enable onion skin on final pass
 	OnionSkinDepth    float64 `json:"onion_skin_depth"`    // Thickness of skin to leave (mm)
 	OnionSkinCleanup  bool    `json:"onion_skin_cleanup"`  // Generate a separate cleanup pass to remove the skin
+
+	// Fixture/clamp exclusion zones
+	ClampZones []ClampZone `json:"clamp_zones,omitempty"` // Clamp/fixture zones to exclude from optimization
 }
 
 // StockTabConfig defines holding tabs for the stock sheet edges.
@@ -376,6 +379,34 @@ type TabZone struct {
 	Y      float64 `json:"y"`      // Distance from top edge (mm)
 	Width  float64 `json:"width"`  // Zone width (mm)
 	Height float64 `json:"height"` // Zone height (mm)
+}
+
+// ClampZone defines a rectangular exclusion zone on the stock sheet where
+// a clamp or fixture is placed. The optimizer will avoid placing parts in
+// these zones, and the GCode generator can check for dust shoe collisions.
+type ClampZone struct {
+	Label  string  `json:"label"`  // Descriptive label (e.g., "Front-left clamp")
+	X      float64 `json:"x"`      // Distance from left edge (mm)
+	Y      float64 `json:"y"`      // Distance from top edge (mm)
+	Width  float64 `json:"width"`  // Zone width (mm)
+	Height float64 `json:"height"` // Zone height (mm)
+	ZHeight float64 `json:"z_height"` // Height above stock surface (mm), used for collision detection
+}
+
+// Overlaps returns true if this clamp zone overlaps with the given rectangle.
+func (cz ClampZone) Overlaps(x, y, w, h float64) bool {
+	return cz.X < x+w && cz.X+cz.Width > x &&
+		cz.Y < y+h && cz.Y+cz.Height > y
+}
+
+// ToTabZone converts a ClampZone to a TabZone for use in exclusion logic.
+func (cz ClampZone) ToTabZone() TabZone {
+	return TabZone{
+		X:      cz.X,
+		Y:      cz.Y,
+		Width:  cz.Width,
+		Height: cz.Height,
+	}
 }
 
 // GCodeProfile defines a post-processor configuration for different CNC controllers.

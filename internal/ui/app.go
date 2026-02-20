@@ -889,6 +889,8 @@ func (a *App) buildSettingsPanel() fyne.CanvasObject {
 		),
 	)
 
+	clampZoneSection := a.buildClampZoneSection()
+
 	return container.NewVScroll(container.NewVBox(
 		optimizerSection,
 		cncSection,
@@ -897,7 +899,200 @@ func (a *App) buildSettingsPanel() fyne.CanvasObject {
 		cornerSection,
 		onionSkinSection,
 		stockTabSection,
+		clampZoneSection,
 	))
+}
+
+// clampZoneListContainer holds the dynamic clamp zone list for refresh.
+var clampZoneListContainer *fyne.Container
+
+// buildClampZoneSection creates the settings card for clamp/fixture exclusion zones.
+func (a *App) buildClampZoneSection() fyne.CanvasObject {
+	clampZoneListContainer = container.NewVBox()
+	a.refreshClampZoneList()
+
+	addBtn := widget.NewButtonWithIcon("Add Clamp Zone", theme.ContentAddIcon(), func() {
+		a.showAddClampZoneDialog()
+	})
+
+	return widget.NewCard("Fixture / Clamp Zones",
+		"Define exclusion zones where clamps or fixtures are placed on the stock sheet",
+		container.NewVBox(
+			container.NewHBox(layout.NewSpacer(), addBtn),
+			clampZoneListContainer,
+		),
+	)
+}
+
+// refreshClampZoneList rebuilds the clamp zone list display.
+func (a *App) refreshClampZoneList() {
+	if clampZoneListContainer == nil {
+		return
+	}
+	clampZoneListContainer.RemoveAll()
+
+	zones := a.project.Settings.ClampZones
+	if len(zones) == 0 {
+		clampZoneListContainer.Add(widget.NewLabel("No clamp zones defined. Parts can be placed anywhere on the sheet."))
+		return
+	}
+
+	header := container.NewGridWithColumns(7,
+		widget.NewLabelWithStyle("Label", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabelWithStyle("X (mm)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabelWithStyle("Y (mm)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabelWithStyle("Width (mm)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabelWithStyle("Height (mm)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabelWithStyle("Z Height (mm)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{}),
+	)
+	clampZoneListContainer.Add(header)
+	clampZoneListContainer.Add(widget.NewSeparator())
+
+	for i := range zones {
+		idx := i
+		cz := zones[idx]
+		row := container.NewGridWithColumns(7,
+			widget.NewLabel(cz.Label),
+			widget.NewLabel(fmt.Sprintf("%.0f", cz.X)),
+			widget.NewLabel(fmt.Sprintf("%.0f", cz.Y)),
+			widget.NewLabel(fmt.Sprintf("%.0f", cz.Width)),
+			widget.NewLabel(fmt.Sprintf("%.0f", cz.Height)),
+			widget.NewLabel(fmt.Sprintf("%.1f", cz.ZHeight)),
+			widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
+				a.project.Settings.ClampZones = append(
+					a.project.Settings.ClampZones[:idx],
+					a.project.Settings.ClampZones[idx+1:]...,
+				)
+				a.refreshClampZoneList()
+			}),
+		)
+		clampZoneListContainer.Add(row)
+	}
+}
+
+// showAddClampZoneDialog shows a form to define a new clamp/fixture zone.
+func (a *App) showAddClampZoneDialog() {
+	labelEntry := widget.NewEntry()
+	labelEntry.SetText(fmt.Sprintf("Clamp %d", len(a.project.Settings.ClampZones)+1))
+
+	xEntry := widget.NewEntry()
+	xEntry.SetPlaceHolder("X from left edge (mm)")
+	xEntry.SetText("0")
+
+	yEntry := widget.NewEntry()
+	yEntry.SetPlaceHolder("Y from top edge (mm)")
+	yEntry.SetText("0")
+
+	wEntry := widget.NewEntry()
+	wEntry.SetPlaceHolder("Width (mm)")
+	wEntry.SetText("50")
+
+	hEntry := widget.NewEntry()
+	hEntry.SetPlaceHolder("Height (mm)")
+	hEntry.SetText("50")
+
+	zEntry := widget.NewEntry()
+	zEntry.SetPlaceHolder("Height above stock (mm)")
+	zEntry.SetText("25")
+
+	// Preset clamp positions for common setups
+	presetSelect := widget.NewSelect([]string{
+		"Custom",
+		"Front-Left Corner (50x50)",
+		"Front-Right Corner (50x50)",
+		"Back-Left Corner (50x50)",
+		"Back-Right Corner (50x50)",
+		"Center-Left (50x50)",
+		"Center-Right (50x50)",
+	}, func(selected string) {
+		stockW := 2440.0
+		stockH := 1220.0
+		if len(a.project.Stocks) > 0 {
+			stockW = a.project.Stocks[0].Width
+			stockH = a.project.Stocks[0].Height
+		}
+		switch selected {
+		case "Front-Left Corner (50x50)":
+			xEntry.SetText("0")
+			yEntry.SetText(fmt.Sprintf("%.0f", stockH-50))
+			wEntry.SetText("50")
+			hEntry.SetText("50")
+			labelEntry.SetText("Front-Left Clamp")
+		case "Front-Right Corner (50x50)":
+			xEntry.SetText(fmt.Sprintf("%.0f", stockW-50))
+			yEntry.SetText(fmt.Sprintf("%.0f", stockH-50))
+			wEntry.SetText("50")
+			hEntry.SetText("50")
+			labelEntry.SetText("Front-Right Clamp")
+		case "Back-Left Corner (50x50)":
+			xEntry.SetText("0")
+			yEntry.SetText("0")
+			wEntry.SetText("50")
+			hEntry.SetText("50")
+			labelEntry.SetText("Back-Left Clamp")
+		case "Back-Right Corner (50x50)":
+			xEntry.SetText(fmt.Sprintf("%.0f", stockW-50))
+			yEntry.SetText("0")
+			wEntry.SetText("50")
+			hEntry.SetText("50")
+			labelEntry.SetText("Back-Right Clamp")
+		case "Center-Left (50x50)":
+			xEntry.SetText("0")
+			yEntry.SetText(fmt.Sprintf("%.0f", stockH/2-25))
+			wEntry.SetText("50")
+			hEntry.SetText("50")
+			labelEntry.SetText("Center-Left Clamp")
+		case "Center-Right (50x50)":
+			xEntry.SetText(fmt.Sprintf("%.0f", stockW-50))
+			yEntry.SetText(fmt.Sprintf("%.0f", stockH/2-25))
+			wEntry.SetText("50")
+			hEntry.SetText("50")
+			labelEntry.SetText("Center-Right Clamp")
+		}
+	})
+	presetSelect.PlaceHolder = "Select a preset position..."
+
+	form := dialog.NewForm("Add Clamp Zone", "Add", "Cancel",
+		[]*widget.FormItem{
+			widget.NewFormItem("Preset", presetSelect),
+			widget.NewFormItem("Label", labelEntry),
+			widget.NewFormItem("X Position (mm)", xEntry),
+			widget.NewFormItem("Y Position (mm)", yEntry),
+			widget.NewFormItem("Width (mm)", wEntry),
+			widget.NewFormItem("Height (mm)", hEntry),
+			widget.NewFormItem("Z Height (mm)", zEntry),
+		},
+		func(ok bool) {
+			if !ok {
+				return
+			}
+			x, _ := strconv.ParseFloat(xEntry.Text, 64)
+			y, _ := strconv.ParseFloat(yEntry.Text, 64)
+			w, _ := strconv.ParseFloat(wEntry.Text, 64)
+			h, _ := strconv.ParseFloat(hEntry.Text, 64)
+			z, _ := strconv.ParseFloat(zEntry.Text, 64)
+
+			if w <= 0 || h <= 0 {
+				dialog.ShowError(fmt.Errorf("clamp zone width and height must be > 0"), a.window)
+				return
+			}
+
+			zone := model.ClampZone{
+				Label:   labelEntry.Text,
+				X:       x,
+				Y:       y,
+				Width:   w,
+				Height:  h,
+				ZHeight: z,
+			}
+			a.project.Settings.ClampZones = append(a.project.Settings.ClampZones, zone)
+			a.refreshClampZoneList()
+		},
+		a.window,
+	)
+	form.Resize(fyne.NewSize(450, 520))
+	form.Show()
 }
 
 func (a *App) buildProfileSelector() fyne.CanvasObject {

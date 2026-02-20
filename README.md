@@ -13,6 +13,7 @@ A cross-platform desktop application for optimizing rectangular cut lists and ge
 - **Saw Kerf & Edge Trim** — Accounts for blade width and stock edge waste
 - **Part Rotation** — Automatically rotates parts for better fit (respects grain)
 - **Multiple Stock Sizes** — Use different stock sheet sizes in one run with smart selection (trial-packing heuristic)
+- **Fixture / Clamp Zones** — Define rectangular exclusion zones for clamps and fixtures; optimizer avoids placing parts in these areas
 
 ### CNC & GCode
 - **GCode Export** — Full CNC toolpath generation with:

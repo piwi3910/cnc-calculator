@@ -218,6 +218,9 @@ func (r *sheetCanvasRenderer) rebuild() {
 	// Draw stock holding tabs (exclusion zones)
 	r.drawStockTabs(sheet.Stock, scale, panX, panY)
 
+	// Draw clamp/fixture zones
+	r.drawClampZones(scale, panX, panY)
+
 	// Placed parts
 	for i, p := range sheet.Placements {
 		col := partColors[i%len(partColors)]
@@ -333,6 +336,43 @@ func (r *sheetCanvasRenderer) drawStockTabs(stock model.StockSheet, scale, panX,
 			label.TextStyle = fyne.TextStyle{Bold: true}
 			label.Move(fyne.NewPos(zx+5, zy+2))
 			r.objects = append(r.objects, label)
+		}
+	}
+}
+
+// drawClampZones visualizes fixture/clamp exclusion zones on the sheet.
+func (r *sheetCanvasRenderer) drawClampZones(scale, panX, panY float32) {
+	for _, cz := range r.sc.settings.ClampZones {
+		cx := float32(cz.X)*scale + panX
+		cy := float32(cz.Y)*scale + panY
+		cw := float32(cz.Width) * scale
+		ch := float32(cz.Height) * scale
+
+		// Clamp zone background (orange warning color, distinct from red tab zones)
+		czRect := canvas.NewRectangle(color.NRGBA{R: 255, G: 165, B: 0, A: 140})
+		czRect.Resize(fyne.NewSize(cw, ch))
+		czRect.Move(fyne.NewPos(cx, cy))
+		r.objects = append(r.objects, czRect)
+
+		// Clamp zone border
+		czBorder := canvas.NewRectangle(color.Transparent)
+		czBorder.StrokeColor = color.NRGBA{R: 200, G: 120, B: 0, A: 255}
+		czBorder.StrokeWidth = 2
+		czBorder.Resize(fyne.NewSize(cw, ch))
+		czBorder.Move(fyne.NewPos(cx, cy))
+		r.objects = append(r.objects, czBorder)
+
+		// Label for larger zones
+		if cw > 35 && ch > 15 {
+			labelText := "CLAMP"
+			if cz.Label != "" {
+				labelText = cz.Label
+			}
+			clampLabel := canvas.NewText(labelText, color.White)
+			clampLabel.TextSize = 8
+			clampLabel.TextStyle = fyne.TextStyle{Bold: true}
+			clampLabel.Move(fyne.NewPos(cx+3, cy+2))
+			r.objects = append(r.objects, clampLabel)
 		}
 	}
 }
