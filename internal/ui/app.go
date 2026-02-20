@@ -978,8 +978,16 @@ func (a *App) buildSettingsPanel() fyne.CanvasObject {
 		),
 	)
 
+	weightsSection := widget.NewCard("Optimization Objectives", "Weight priorities for multi-objective optimization (0 = disabled, higher = more important)", container.NewGridWithColumns(2,
+		widget.NewLabel("Minimize Waste"), floatEntry(&s.OptimizeWeights.MinimizeWaste),
+		widget.NewLabel("Minimize Sheets"), floatEntry(&s.OptimizeWeights.MinimizeSheets),
+		widget.NewLabel("Minimize Cut Length"), floatEntry(&s.OptimizeWeights.MinimizeCutLen),
+		widget.NewLabel("Minimize Job Time"), floatEntry(&s.OptimizeWeights.MinimizeJobTime),
+	))
+
 	return container.NewVScroll(container.NewVBox(
 		optimizerSection,
+		weightsSection,
 		cncSection,
 		plungeSection,
 		leadInOutSection,

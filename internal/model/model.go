@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/google/uuid"
 )
@@ -143,6 +144,21 @@ func (o Outline) Translate(dx, dy float64) Outline {
 		result[i] = Point2D{X: p.X + dx, Y: p.Y + dy}
 	}
 	return result
+}
+
+// Perimeter returns the total perimeter length of the outline polygon.
+func (o Outline) Perimeter() float64 {
+	if len(o) < 2 {
+		return 0
+	}
+	var total float64
+	for i := 0; i < len(o); i++ {
+		j := (i + 1) % len(o)
+		dx := o[j].X - o[i].X
+		dy := o[j].Y - o[i].Y
+		total += math.Sqrt(dx*dx + dy*dy)
+	}
+	return total
 }
 
 // EdgeBanding flags which edges of a part need edge banding applied.
@@ -397,6 +413,44 @@ type CutSettings struct {
 	DustShoeEnabled   bool    `json:"dust_shoe_enabled"`   // Enable dust shoe collision checking
 	DustShoeWidth     float64 `json:"dust_shoe_width"`     // Dust shoe diameter/width in mm
 	DustShoeClearance float64 `json:"dust_shoe_clearance"` // Minimum clearance between dust shoe edge and clamp (mm)
+
+	// Multi-objective optimization weights (all values 0-1, normalized internally)
+	OptimizeWeights OptimizeWeights `json:"optimize_weights"` // Weights for multi-objective fitness
+}
+
+// OptimizeWeights controls the priority of different optimization objectives.
+// Each weight is in the range [0,1]. They are normalized internally so their
+// relative proportions determine priority. A weight of 0 disables that objective.
+type OptimizeWeights struct {
+	MinimizeWaste    float64 `json:"minimize_waste"`     // Weight for minimizing material waste (default 1.0)
+	MinimizeSheets   float64 `json:"minimize_sheets"`    // Weight for minimizing number of sheets used (default 0.5)
+	MinimizeCutLen   float64 `json:"minimize_cut_len"`   // Weight for minimizing total cut length (default 0.0)
+	MinimizeJobTime  float64 `json:"minimize_job_time"`  // Weight for minimizing estimated job time (default 0.0)
+}
+
+// DefaultOptimizeWeights returns the default optimization weights.
+func DefaultOptimizeWeights() OptimizeWeights {
+	return OptimizeWeights{
+		MinimizeWaste:   1.0,
+		MinimizeSheets:  0.5,
+		MinimizeCutLen:  0.0,
+		MinimizeJobTime: 0.0,
+	}
+}
+
+// Normalize returns a copy of the weights with values normalized to sum to 1.
+// If all weights are zero, returns equal weights for waste and sheets.
+func (w OptimizeWeights) Normalize() OptimizeWeights {
+	total := w.MinimizeWaste + w.MinimizeSheets + w.MinimizeCutLen + w.MinimizeJobTime
+	if total <= 0 {
+		return OptimizeWeights{MinimizeWaste: 0.5, MinimizeSheets: 0.5}
+	}
+	return OptimizeWeights{
+		MinimizeWaste:   w.MinimizeWaste / total,
+		MinimizeSheets:  w.MinimizeSheets / total,
+		MinimizeCutLen:  w.MinimizeCutLen / total,
+		MinimizeJobTime: w.MinimizeJobTime / total,
+	}
 }
 
 // StockTabConfig defines holding tabs for the stock sheet edges.
@@ -700,6 +754,7 @@ func DefaultSettings() CutSettings {
 		DustShoeEnabled:   false,  // Dust shoe collision detection disabled by default
 		DustShoeWidth:     80.0,   // 80mm default dust shoe diameter
 		DustShoeClearance: 5.0,    // 5mm minimum clearance
+		OptimizeWeights:   DefaultOptimizeWeights(),
 	}
 }
 
@@ -773,6 +828,40 @@ func (or OptimizeResult) TotalEfficiency() float64 {
 		return 0
 	}
 	return (usedArea / totalArea) * 100.0
+}
+
+// TotalCutLength returns the total perimeter of all placed parts (mm).
+// This approximates the total cut length needed. For outline parts, it uses
+// the outline perimeter; for rectangular parts, it uses 2*(W+H).
+func (or OptimizeResult) TotalCutLength() float64 {
+	var total float64
+	for _, s := range or.Sheets {
+		for _, p := range s.Placements {
+			if len(p.Part.Outline) > 0 {
+				total += p.Part.Outline.Perimeter()
+			} else {
+				total += 2 * (p.PlacedWidth() + p.PlacedHeight())
+			}
+		}
+	}
+	return total
+}
+
+// EstimatedJobTime estimates the total machining time (minutes) based on
+// cut length, feed rate, and number of sheets (setup time per sheet).
+// setupTimePerSheet is an additional constant overhead per sheet (e.g. 2 min).
+func (or OptimizeResult) EstimatedJobTime(feedRate float64, passDepth, cutDepth float64, setupTimePerSheet float64) float64 {
+	if feedRate <= 0 {
+		return 0
+	}
+	cutLen := or.TotalCutLength()
+	numPasses := 1.0
+	if passDepth > 0 && cutDepth > 0 {
+		numPasses = math.Ceil(cutDepth / passDepth)
+	}
+	cuttingTime := (cutLen * numPasses) / feedRate // minutes
+	setupTime := float64(len(or.Sheets)) * setupTimePerSheet
+	return cuttingTime + setupTime
 }
 
 // TotalCost returns the total material cost across all used sheets.
