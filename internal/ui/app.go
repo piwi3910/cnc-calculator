@@ -724,28 +724,47 @@ func (a *App) importExcel() {
 }
 
 func (a *App) handleImportResult(result partimporter.ImportResult) {
-	// Show errors if any
+	// Build a comprehensive summary message
+	var summary strings.Builder
+
+	// Results summary
+	summary.WriteString(fmt.Sprintf("Parts imported: %d", len(result.Parts)))
+
 	if len(result.Errors) > 0 {
-		errorMsg := "Errors encountered during import:\n\n" + strings.Join(result.Errors, "\n")
-		dialog.ShowError(fmt.Errorf("%s", errorMsg), a.window)
+		summary.WriteString(fmt.Sprintf("\nRows skipped: %d", len(result.Errors)))
 	}
 
-	// Show warnings if any
+	// Warnings section
 	if len(result.Warnings) > 0 {
-		// Just log warnings, don't block
-		fmt.Printf("Import warnings: %v\n", result.Warnings)
+		summary.WriteString("\n\nWarnings:\n")
+		for _, w := range result.Warnings {
+			summary.WriteString(fmt.Sprintf("  - %s\n", w))
+		}
 	}
 
-	// Add imported parts
+	// Errors section
+	if len(result.Errors) > 0 {
+		summary.WriteString("\nErrors:\n")
+		maxErrors := 10
+		for i, e := range result.Errors {
+			if i >= maxErrors {
+				summary.WriteString(fmt.Sprintf("  ... and %d more errors\n", len(result.Errors)-maxErrors))
+				break
+			}
+			summary.WriteString(fmt.Sprintf("  - %s\n", e))
+		}
+	}
+
+	// Add imported parts to the project
 	if len(result.Parts) > 0 {
 		a.project.Parts = append(a.project.Parts, result.Parts...)
 		a.refreshPartsList()
+	}
 
-		// Show success message
-		msg := fmt.Sprintf("Successfully imported %d parts.", len(result.Parts))
-		if len(result.Errors) > 0 {
-			msg += fmt.Sprintf("\n\nHowever, %d rows had errors and were skipped.", len(result.Errors))
-		}
-		dialog.ShowInformation("Import Complete", msg, a.window)
+	// Show the summary dialog
+	if len(result.Parts) == 0 && len(result.Errors) > 0 {
+		dialog.ShowError(fmt.Errorf("import failed\n\n%s", summary.String()), a.window)
+	} else {
+		dialog.ShowInformation("Import Summary", summary.String(), a.window)
 	}
 }
