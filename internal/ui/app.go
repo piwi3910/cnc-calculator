@@ -93,16 +93,18 @@ func NewApp(application fyne.App, window fyne.Window) *App {
 	return app
 }
 
-// applyTheme sets the Fyne theme based on the current config.
+// applyTheme sets the compact SlabCut theme with the appropriate light/dark variant.
 func (a *App) applyTheme() {
+	var variant fyne.ThemeVariant
 	switch a.config.Theme {
 	case "light":
-		a.app.Settings().SetTheme(theme.LightTheme())
+		variant = theme.VariantLight
 	case "dark":
-		a.app.Settings().SetTheme(theme.DarkTheme())
+		variant = theme.VariantDark
 	default:
-		a.app.Settings().SetTheme(theme.DefaultTheme())
+		variant = theme.VariantDark // default to system (use dark as fallback)
 	}
+	a.app.Settings().SetTheme(NewSlabCutThemeWithVariant(variant))
 }
 
 // loadInventory loads tool and stock inventory from the default path.
