@@ -11,6 +11,7 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -44,10 +45,7 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dev xorg-dev gcc-mingw-w64-x86-64
 
-      - name: Install fyne CLI
-        run: go install fyne.io/fyne/v2/cmd/fyne@latest
-
-      - name: Build and package
+      - name: Build
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -57,44 +55,21 @@ jobs:
           COMMIT="$(git rev-parse --short HEAD)"
           LDFLAGS="-X github.com/piwi3910/SlabCut/internal/version.Version=${VERSION} -X github.com/piwi3910/SlabCut/internal/version.Commit=${COMMIT}"
 
-          # Windows cross-compile from Linux needs mingw
           if [ "$GOOS" = "windows" ]; then
             export CC=x86_64-w64-mingw32-gcc
             LDFLAGS="${LDFLAGS} -H windowsgui"
           fi
 
-          # Use fyne package for native OS builds (embeds icon properly)
-          # For cross-OS builds, fall back to go build
-          if [ "$GOOS" = "$(go env GOHOSTOS)" ]; then
-            fyne package -os "$GOOS" -icon logos/slabcut-icon.png \
-              -name SlabCut -appID com.piwi3910.slabcut \
-              -src ./cmd/slabcut
-
-            # Collect the output
-            if [ "$GOOS" = "darwin" ]; then
-              # fyne package creates SlabCut.app; tar it for release
-              tar czf "${{ matrix.artifact }}.tar.gz" SlabCut.app
-            elif [ "$GOOS" = "windows" ]; then
-              mv SlabCut.exe "${{ matrix.artifact }}"
-            else
-              mv SlabCut "${{ matrix.artifact }}"
-            fi
-          else
-            # Cross-compile with go build (icon embedded via go:embed at runtime)
-            go build \
-              -ldflags="${LDFLAGS}" \
-              -o "${{ matrix.artifact }}" \
-              ./cmd/slabcut
-          fi
+          go build \
+            -ldflags="${LDFLAGS}" \
+            -o "${{ matrix.artifact }}" \
+            ./cmd/slabcut
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: |
-            ${{ matrix.artifact }}
-            ${{ matrix.artifact }}.tar.gz
-          if-no-files-found: error
+          path: ${{ matrix.artifact }}
 
   release:
     needs: build
@@ -113,7 +88,7 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
         run: |
           mkdir -p release
-          find artifacts -type f \( -name "slabcut-*" -o -name "*.tar.gz" \) -exec cp {} release/ \;
+          find artifacts -type f -exec cp {} release/ \;
           ls -la release/
 
           gh release create "${TAG_NAME}" release/* \
