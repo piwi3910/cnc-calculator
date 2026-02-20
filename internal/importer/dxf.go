@@ -47,7 +47,7 @@ func ImportDXF(path string) ImportResult {
 				outlines = append(outlines, outline)
 			} else {
 				result.Warnings = append(result.Warnings,
-					fmt.Sprintf("Skipped LWPOLYLINE with fewer than 3 vertices"))
+					"Skipped LWPOLYLINE with fewer than 3 vertices")
 			}
 
 		case *entity.Circle:

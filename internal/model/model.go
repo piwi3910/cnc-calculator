@@ -67,13 +67,13 @@ func (o Outline) Translate(dx, dy float64) Outline {
 
 // Part represents a required piece to be cut.
 type Part struct {
-	ID       string   `json:"id"`
-	Label    string   `json:"label"`
-	Width    float64  `json:"width"`  // mm (bounding box width for non-rectangular parts)
-	Height   float64  `json:"height"` // mm (bounding box height for non-rectangular parts)
-	Quantity int      `json:"quantity"`
-	Grain    Grain    `json:"grain"`
-	Outline  Outline  `json:"outline,omitempty"` // Non-rectangular part outline; nil for rectangular parts
+	ID       string  `json:"id"`
+	Label    string  `json:"label"`
+	Width    float64 `json:"width"`  // mm (bounding box width for non-rectangular parts)
+	Height   float64 `json:"height"` // mm (bounding box height for non-rectangular parts)
+	Quantity int     `json:"quantity"`
+	Grain    Grain   `json:"grain"`
+	Outline  Outline `json:"outline,omitempty"` // Non-rectangular part outline; nil for rectangular parts
 }
 
 func NewPart(label string, w, h float64, qty int) Part {
