@@ -29,7 +29,8 @@ func (a *App) showToolInventoryDialog() {
 			return
 		}
 
-		header := container.NewGridWithColumns(8,
+		header := container.NewGridWithColumns(9,
+			widget.NewLabelWithStyle("Slot", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			widget.NewLabelWithStyle("Name", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			widget.NewLabelWithStyle("Diameter", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			widget.NewLabelWithStyle("Feed Rate", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
@@ -45,7 +46,12 @@ func (a *App) showToolInventoryDialog() {
 		for i := range a.inventory.Tools {
 			idx := i
 			t := a.inventory.Tools[idx]
-			row := container.NewGridWithColumns(8,
+			slotLabel := "-"
+			if t.SlotNumber > 0 {
+				slotLabel = fmt.Sprintf("T%d", t.SlotNumber)
+			}
+			row := container.NewGridWithColumns(9,
+				widget.NewLabel(slotLabel),
 				widget.NewLabel(t.Name),
 				widget.NewLabel(fmt.Sprintf("%.2f mm", t.ToolDiameter)),
 				widget.NewLabel(fmt.Sprintf("%.0f mm/min", t.FeedRate)),
@@ -97,6 +103,14 @@ func (a *App) showAddToolDialog(onDone func()) {
 	nameEntry.SetPlaceHolder("Tool profile name")
 	nameEntry.SetText("New End Mill")
 
+	slotOptions := make([]string, 13)
+	slotOptions[0] = "None"
+	for i := 1; i <= 12; i++ {
+		slotOptions[i] = fmt.Sprintf("T%d", i)
+	}
+	slotSelect := widget.NewSelect(slotOptions, nil)
+	slotSelect.SetSelected("None")
+
 	diameterEntry := widget.NewEntry()
 	diameterEntry.SetText("6.0")
 
@@ -121,6 +135,7 @@ func (a *App) showAddToolDialog(onDone func()) {
 	form := dialog.NewForm("Add Tool Profile", "Add", "Cancel",
 		[]*widget.FormItem{
 			widget.NewFormItem("Name", nameEntry),
+			widget.NewFormItem("CNC Slot (1-12)", slotSelect),
 			widget.NewFormItem("Tool Diameter (mm)", diameterEntry),
 			widget.NewFormItem("Feed Rate (mm/min)", feedEntry),
 			widget.NewFormItem("Plunge Rate (mm/min)", plungeEntry),
@@ -146,7 +161,9 @@ func (a *App) showAddToolDialog(onDone func()) {
 				return
 			}
 
+			slot := parseSlotNumber(slotSelect.Selected)
 			tool := model.NewToolProfile(nameEntry.Text, diameter, feed, plunge, rpm, safeZ, cutDepth, passDepth)
+			tool.SlotNumber = slot
 			a.inventory.Tools = append(a.inventory.Tools, tool)
 			a.saveInventory()
 			onDone()
@@ -162,6 +179,18 @@ func (a *App) showEditToolDialog(idx int, onDone func()) {
 
 	nameEntry := widget.NewEntry()
 	nameEntry.SetText(t.Name)
+
+	slotOptions := make([]string, 13)
+	slotOptions[0] = "None"
+	for i := 1; i <= 12; i++ {
+		slotOptions[i] = fmt.Sprintf("T%d", i)
+	}
+	slotSelect := widget.NewSelect(slotOptions, nil)
+	if t.SlotNumber > 0 && t.SlotNumber <= 12 {
+		slotSelect.SetSelected(fmt.Sprintf("T%d", t.SlotNumber))
+	} else {
+		slotSelect.SetSelected("None")
+	}
 
 	diameterEntry := widget.NewEntry()
 	diameterEntry.SetText(fmt.Sprintf("%.2f", t.ToolDiameter))
@@ -187,6 +216,7 @@ func (a *App) showEditToolDialog(idx int, onDone func()) {
 	form := dialog.NewForm("Edit Tool Profile", "Save", "Cancel",
 		[]*widget.FormItem{
 			widget.NewFormItem("Name", nameEntry),
+			widget.NewFormItem("CNC Slot (1-12)", slotSelect),
 			widget.NewFormItem("Tool Diameter (mm)", diameterEntry),
 			widget.NewFormItem("Feed Rate (mm/min)", feedEntry),
 			widget.NewFormItem("Plunge Rate (mm/min)", plungeEntry),
@@ -200,6 +230,7 @@ func (a *App) showEditToolDialog(idx int, onDone func()) {
 				return
 			}
 			a.inventory.Tools[idx].Name = nameEntry.Text
+			a.inventory.Tools[idx].SlotNumber = parseSlotNumber(slotSelect.Selected)
 			a.inventory.Tools[idx].ToolDiameter, _ = strconv.ParseFloat(diameterEntry.Text, 64)
 			a.inventory.Tools[idx].FeedRate, _ = strconv.ParseFloat(feedEntry.Text, 64)
 			a.inventory.Tools[idx].PlungeRate, _ = strconv.ParseFloat(plungeEntry.Text, 64)
@@ -508,4 +539,13 @@ func (a *App) buildToolProfileSelector() fyne.CanvasObject {
 	toolSelect.PlaceHolder = "Load from Tool Profile..."
 
 	return toolSelect
+}
+
+// parseSlotNumber converts "T1"-"T12" to int, "None" to 0.
+func parseSlotNumber(s string) int {
+	if len(s) > 1 && s[0] == 'T' {
+		v, _ := strconv.Atoi(s[1:])
+		return v
+	}
+	return 0
 }

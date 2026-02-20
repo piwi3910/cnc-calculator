@@ -1,11 +1,16 @@
 package model
 
-import "github.com/google/uuid"
+import (
+	"fmt"
+
+	"github.com/google/uuid"
+)
 
 // ToolProfile represents a reusable cutting tool configuration.
 type ToolProfile struct {
 	ID           string  `json:"id"`
 	Name         string  `json:"name"`
+	SlotNumber   int     `json:"slot_number"` // CNC tool slot (1-12, 0 = unassigned)
 	ToolDiameter float64 `json:"tool_diameter"`
 	FeedRate     float64 `json:"feed_rate"`
 	PlungeRate   float64 `json:"plunge_rate"`
@@ -126,12 +131,21 @@ func (inv *Inventory) FindStockByID(id string) *StockPreset {
 }
 
 // ToolNames returns a list of tool profile names for UI dropdowns.
+// Format: "T1 - 6mm End Mill" or "6mm End Mill" if no slot assigned.
 func (inv *Inventory) ToolNames() []string {
 	names := make([]string, len(inv.Tools))
 	for i, t := range inv.Tools {
-		names[i] = t.Name
+		names[i] = t.DisplayName()
 	}
 	return names
+}
+
+// DisplayName returns the tool name prefixed with slot number if assigned.
+func (tp ToolProfile) DisplayName() string {
+	if tp.SlotNumber > 0 {
+		return fmt.Sprintf("T%d - %s", tp.SlotNumber, tp.Name)
+	}
+	return tp.Name
 }
 
 // StockNames returns a list of stock preset names for UI dropdowns.
@@ -143,10 +157,10 @@ func (inv *Inventory) StockNames() []string {
 	return names
 }
 
-// FindToolByName returns a pointer to the first tool with the given name, or nil.
+// FindToolByName returns a pointer to the first tool matching by name or display name, or nil.
 func (inv *Inventory) FindToolByName(name string) *ToolProfile {
 	for i := range inv.Tools {
-		if inv.Tools[i].Name == name {
+		if inv.Tools[i].Name == name || inv.Tools[i].DisplayName() == name {
 			return &inv.Tools[i]
 		}
 	}
