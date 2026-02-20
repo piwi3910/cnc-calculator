@@ -35,7 +35,7 @@ A cross-platform desktop application for optimizing rectangular cut lists and ge
   - Structural cut ordering (center-out) to maintain workpiece rigidity during machining
 - **GCode Preview** — Visual toolpath simulation with color-coded rapid/feed/plunge moves
 - **Toolpath Simulation** — Interactive GCode simulation with progress slider, play/pause/stop/step controls, adjustable speed (0.25x-16x), completed vs remaining cut visualization, live tool position indicator, loop playback, and real-time coordinate display (X/Y/Z/Feed/Type)
-- **Live Simulation Viewport** — Embedded simulation tab in the Results panel for instant toolpath visualization without opening a separate dialog
+- **Live Simulation Viewport** — Dedicated GCode Preview tab with instant toolpath visualization
 - **Post-Processor Profiles** — Built-in profiles for Grbl, Mach3, LinuxCNC + custom user profiles
 - **DXF Part Outlines** — GCode follows actual part contours for non-rectangular shapes
 
@@ -50,8 +50,13 @@ A cross-platform desktop application for optimizing rectangular cut lists and ge
 - **Project Save/Load** — JSON-based project files (`.cnccalc`)
 
 ### User Interface
+- **OrcaSlicer-Inspired 2-Tab Layout** — Modern three-pane Layout Editor (quick settings | sheet canvas | parts/stock) and dedicated GCode Preview tab
+- **Live Auto-Optimization** — Debounced 500ms auto-optimize on any settings, parts, or stock change for instant visual feedback
 - **Visual Layout** — Color-coded sheet diagrams showing part placements and stock tab zones
 - **Zoomable Canvas** — Mouse wheel zoom (centered on cursor) and click-and-drag panning on sheet layout views, with zoom in/out buttons and reset
+- **Compact Part & Stock Cards** — Inline add bars, edit/delete actions, and accordion-organized panels
+- **Quick Settings Panel** — Collapsible accordion sections for Tool, Material, Cutting, and Optimizer parameters
+- **Advanced Settings Dialog** — Full CNC settings (optimization weights, GCode profiles, lead-in/out, plunge entry, corner overcuts, onion skinning, toolpath ordering, tabs, clamp zones, dust shoe collision)
 - **Undo/Redo** — Full history with Ctrl+Z / Ctrl+Y (Cmd+Z / Cmd+Shift+Z on macOS)
 - **Parts Library** — Save and reuse predefined parts organized by category
 - **Tool & Stock Inventory** — Manage cutting tools and stock sheet presets
@@ -138,7 +143,8 @@ SlabCut/
 │   │   ├── sharing.go          # Project sharing/collaboration
 │   │   └── appconfig.go        # App config persistence
 │   └── ui/
-│       ├── app.go              # Main UI (tabs, menus, dialogs)
+│       ├── app.go              # Main UI (2-tab layout, menus, dialogs)
+│       ├── advanced_settings.go # Advanced CNC settings dialog
 │       ├── history.go          # Undo/redo history manager
 │       ├── inventory.go        # Inventory management dialogs
 │       ├── library.go          # Parts library dialogs
@@ -159,18 +165,21 @@ SlabCut/
 
 ```mermaid
 graph TB
-    subgraph "UI Layer (Fyne)"
-        A[Parts Panel] --> B[App]
-        C[Stock Panel] --> B
-        D[Settings Panel] --> B
-        E[Results Panel] --> B
-        F[Sheet Canvas] --> E
-        G[GCode Preview] --> E
+    subgraph "UI Layer (Fyne) — 2-Tab Layout"
+        subgraph "Tab 1: Layout Editor (HSplit 3-pane)"
+            QS[Quick Settings Panel] --> B[App]
+            SC[Sheet Canvas + Zoom] --> B
+            PS[Parts & Stock Cards] --> B
+        end
+        subgraph "Tab 2: GCode Preview"
+            GP[GCode Simulation Viewport] --> B
+        end
+        AD[Advanced Settings Dialog] --> B
         H[Admin Menu] --> B
     end
 
-    subgraph "Core Engine"
-        B --> I[Optimizer]
+    subgraph "Live Auto-Optimization"
+        B -->|500ms debounce| I[Optimizer]
         I --> J[Guillotine Packer]
         I --> K[Genetic Algorithm]
     end
@@ -200,6 +209,8 @@ graph TB
     style L fill:#e1f5ff
     style Q fill:#fff4e6
     style T fill:#f3e5f5
+    style SC fill:#e1f5ff
+    style QS fill:#f3e5f5
 ```
 
 ## Contributing

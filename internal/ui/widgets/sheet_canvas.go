@@ -52,6 +52,7 @@ type SheetCanvas struct {
 	dragging bool
 	dragX    float32 // last drag position
 	dragY    float32
+	dirty    bool // set when sheet data changes, forces renderer rebuild
 }
 
 // NewSheetCanvas creates a new zoomable, pannable sheet canvas widget.
@@ -123,6 +124,16 @@ func (sc *SheetCanvas) MouseMoved(ev *desktop.MouseEvent) {
 	sc.dragX = ev.Position.X
 	sc.dragY = ev.Position.Y
 
+	sc.Refresh()
+}
+
+// SetSheet updates the displayed sheet and settings, then refreshes the canvas.
+func (sc *SheetCanvas) SetSheet(sheet model.SheetResult, settings model.CutSettings) {
+	sc.mu.Lock()
+	sc.sheet = sheet
+	sc.settings = settings
+	sc.dirty = true
+	sc.mu.Unlock()
 	sc.Refresh()
 }
 
@@ -389,9 +400,13 @@ func (r *sheetCanvasRenderer) Layout(size fyne.Size) {}
 func (r *sheetCanvasRenderer) Refresh() {
 	r.sc.mu.Lock()
 	z, px, py := r.sc.zoom, r.sc.panX, r.sc.panY
+	dirty := r.sc.dirty
+	if dirty {
+		r.sc.dirty = false
+	}
 	r.sc.mu.Unlock()
-	// Only rebuild when zoom/pan actually changed
-	if r.built && z == r.lastZoom && px == r.lastPanX && py == r.lastPanY {
+	// Only rebuild when zoom/pan actually changed or data is dirty
+	if r.built && !dirty && z == r.lastZoom && px == r.lastPanX && py == r.lastPanY {
 		return
 	}
 	r.rebuild()

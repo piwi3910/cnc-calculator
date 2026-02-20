@@ -532,9 +532,8 @@ func (a *App) buildToolProfileSelector() fyne.CanvasObject {
 			return
 		}
 		tool.ApplyToSettings(&a.project.Settings)
-		// Rebuild the settings panel to reflect new values
-		a.tabs.Items[2].Content = a.buildSettingsPanel()
-		a.tabs.Refresh()
+		// Rebuild the layout editor to reflect new tool values
+		a.rebuildSettingsPanel()
 	})
 	toolSelect.PlaceHolder = "Load from Tool Profile..."
 

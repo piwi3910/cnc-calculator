@@ -37,7 +37,7 @@ func main() {
 	appUI := ui.NewApp(application, window)
 	appUI.SetupMenus()
 	window.SetContent(appUI.Build())
-	window.Resize(fyne.NewSize(1000, 700))
+	window.Resize(fyne.NewSize(1400, 800))
 	window.CenterOnScreen()
 
 	ui.ShowSplash(application, 2500*time.Millisecond, func() {

@@ -56,6 +56,8 @@ github.com/piwi3910/SlabCut/
 │   ├── importer/           # CSV/Excel/DXF import
 │   ├── export/             # PDF export
 │   ├── ui/                 # Main Fyne UI, dialogs, admin, profile editor
+│   │   │                   #   app.go — 2-tab layout (Layout Editor + GCode Preview)
+│   │   │                   #   advanced_settings.go — Advanced CNC settings dialog
 │   │   └── widgets/        # Custom Fyne widgets (SheetCanvas, GCodePreview)
 │   ├── project/            # Project/profile/inventory/library/config persistence
 │   ├── version/            # Build-time version/commit info (ldflags)
@@ -116,18 +118,21 @@ Examples: `issue-42-fix-login-auth`, `issue-15-add-export-feature`
 
 ```mermaid
 graph TB
-    subgraph "UI Layer (Fyne)"
-        A[Parts Panel] --> B[App]
-        C[Stock Panel] --> B
-        D[Settings Panel] --> B
-        E[Results Panel] --> B
-        F[Sheet Canvas] --> E
-        G[GCode Preview] --> E
+    subgraph "UI Layer (Fyne) — 2-Tab Layout"
+        subgraph "Tab 1: Layout Editor (HSplit 3-pane)"
+            QS[Quick Settings Panel] --> B[App]
+            SC[Sheet Canvas + Zoom] --> B
+            PS[Parts & Stock Cards] --> B
+        end
+        subgraph "Tab 2: GCode Preview"
+            GP[GCode Simulation Viewport] --> B
+        end
+        AD[Advanced Settings Dialog] --> B
         H[Admin Menu] --> B
     end
 
-    subgraph "Core Engine"
-        B --> I[Optimizer]
+    subgraph "Live Auto-Optimization"
+        B -->|500ms debounce| I[Optimizer]
         I --> J[Guillotine Packer]
         I --> K[Genetic Algorithm]
     end
@@ -157,6 +162,8 @@ graph TB
     style L fill:#e1f5ff
     style Q fill:#fff4e6
     style T fill:#f3e5f5
+    style SC fill:#e1f5ff
+    style QS fill:#f3e5f5
 ```
 
 ## Development Commands

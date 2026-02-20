@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -39,11 +41,23 @@ type App struct {
 	// Template management
 	templates model.TemplateStore
 
+	// Auto-optimization
+	optimizeTimer *time.Timer
+	optimizeMu    sync.Mutex
+
 	// UI references for dynamic updates
 	partsContainer  *fyne.Container
 	stockContainer  *fyne.Container
 	resultContainer *fyne.Container
 	profileSelector *widget.Select
+
+	// New UI references for OrcaSlicer layout
+	sheetCanvas       *widgets.SheetCanvas
+	sheetSelectorBox  *fyne.Container
+	statusLabel       *widget.Label
+	gcodePreviewBox   *fyne.Container
+	selectedSheetIdx  int
+	settingsContainer *fyne.Container
 
 	// Dust shoe collision results from last optimization
 	lastCollisions []model.DustShoeCollision
@@ -132,6 +146,8 @@ func (a *App) refreshProfileSelector() {
 	}
 }
 
+// ─── Menus ──────────────────────────────────────────────────
+
 // SetupMenus creates the native menu bar for the application.
 func (a *App) SetupMenus() {
 	// File Menu
@@ -193,19 +209,20 @@ func (a *App) SetupMenus() {
 			a.saveState("Clear All Parts")
 			a.project.Parts = nil
 			a.refreshPartsList()
+			a.scheduleOptimize()
 		}),
 		fyne.NewMenuItem("Clear All Stock Sheets", func() {
 			a.saveState("Clear All Stock Sheets")
 			a.project.Stocks = nil
 			a.refreshStockList()
+			a.scheduleOptimize()
 		}),
 	)
 
 	// Tools Menu
 	toolsMenu := fyne.NewMenu("Tools",
-		fyne.NewMenuItem("Optimize", func() {
+		fyne.NewMenuItem("Force Re-Optimize", func() {
 			a.runOptimize()
-			a.tabs.SelectIndex(3) // Switch to Results tab
 		}),
 		fyne.NewMenuItem("Compare Settings...", func() {
 			a.showCompareDialog()
@@ -213,10 +230,6 @@ func (a *App) SetupMenus() {
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Purchasing Calculator...", func() {
 			a.showPurchasingCalculator()
-		}),
-		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Manage GCode Profiles...", func() {
-			a.showProfileManager()
 		}),
 	)
 
@@ -235,10 +248,16 @@ func (a *App) SetupMenus() {
 			a.showTemplateManager()
 		}),
 		fyne.NewMenuItemSeparator(),
+		fyne.NewMenuItem("Advanced Settings...", func() {
+			a.showAdvancedSettingsDialog()
+		}),
+		fyne.NewMenuItem("GCode Profiles...", func() {
+			a.showProfileManager()
+		}),
+		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Import/Export Data...", func() {
 			a.showImportExportDialog()
 		}),
-		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Settings...", func() {
 			a.showSettingsDialog()
 		}),
@@ -251,7 +270,6 @@ func (a *App) SetupMenus() {
 		}),
 	)
 
-	// Set the main menu
 	mainMenu := fyne.NewMainMenu(
 		fileMenu,
 		editMenu,
@@ -273,27 +291,803 @@ func (a *App) showAboutDialog() {
 	)
 }
 
+// ─── Build (OrcaSlicer-Inspired Layout) ─────────────────────
+
 // Build constructs the full UI and returns the root container.
 func (a *App) Build() fyne.CanvasObject {
-	// Main tabs
-	partsTab := container.NewTabItem("Parts", a.buildPartsPanel())
-	stockTab := container.NewTabItem("Stock Sheets", a.buildStockPanel())
-	settingsTab := container.NewTabItem("Settings", a.buildSettingsPanel())
-	resultsTab := container.NewTabItem("Results", a.buildResultsPanel())
+	// Tab 1: Layout Editor (three-pane)
+	layoutTab := container.NewTabItem("Layout Editor", a.buildLayoutEditor())
 
-	a.tabs = container.NewAppTabs(partsTab, stockTab, settingsTab, resultsTab)
+	// Tab 2: GCode Preview
+	gcodeTab := container.NewTabItem("GCode Preview", a.buildGCodePreviewTab())
+
+	a.tabs = container.NewAppTabs(layoutTab, gcodeTab)
 	a.tabs.SetTabLocation(container.TabLocationTop)
 
 	a.registerShortcuts()
 
-	statusBar := widget.NewLabelWithStyle(
+	// Status bar
+	a.statusLabel = widget.NewLabel("No optimization yet")
+
+	versionLabel := widget.NewLabelWithStyle(
 		"SlabCut "+version.Short(),
-		fyne.TextAlignTrailing,
+		fyne.TextAlignLeading,
 		fyne.TextStyle{Italic: true},
+	)
+
+	exportGCodeBtn := widget.NewButtonWithIcon("Export GCode", theme.DocumentSaveIcon(), func() {
+		a.exportGCode()
+	})
+	exportPDFBtn := widget.NewButtonWithIcon("Export PDF", theme.DocumentSaveIcon(), func() {
+		a.exportPDF()
+	})
+
+	statusBar := container.NewHBox(
+		versionLabel,
+		layout.NewSpacer(),
+		a.statusLabel,
+		layout.NewSpacer(),
+		exportGCodeBtn,
+		exportPDFBtn,
 	)
 
 	return container.NewBorder(nil, statusBar, nil, nil, a.tabs)
 }
+
+// buildLayoutEditor creates the three-pane Layout Editor tab.
+func (a *App) buildLayoutEditor() fyne.CanvasObject {
+	leftPanel := a.buildQuickSettingsPanel()
+	centerPanel := a.buildCenterCanvas()
+	rightPanel := a.buildPartsStockPanel()
+
+	// Left + Center split
+	leftCenter := container.NewHSplit(leftPanel, centerPanel)
+	leftCenter.SetOffset(0.22)
+
+	// (Left+Center) + Right split
+	threePanes := container.NewHSplit(leftCenter, rightPanel)
+	threePanes.SetOffset(0.75)
+
+	return threePanes
+}
+
+// ─── Left Panel: Quick Settings ─────────────────────────────
+
+func (a *App) buildQuickSettingsPanel() fyne.CanvasObject {
+	s := &a.project.Settings
+
+	// Helper to create float entry with scheduleOptimize on change
+	floatEntry := func(val *float64) *widget.Entry {
+		e := widget.NewEntry()
+		e.SetText(fmt.Sprintf("%.1f", *val))
+		e.OnChanged = func(text string) {
+			if v, err := strconv.ParseFloat(text, 64); err == nil {
+				*val = v
+				a.scheduleOptimize()
+			}
+		}
+		return e
+	}
+
+	intEntry := func(val *int) *widget.Entry {
+		e := widget.NewEntry()
+		e.SetText(fmt.Sprintf("%d", *val))
+		e.OnChanged = func(text string) {
+			if v, err := strconv.Atoi(text); err == nil {
+				*val = v
+				a.scheduleOptimize()
+			}
+		}
+		return e
+	}
+
+	// --- Tool Section ---
+	toolNames := a.inventory.ToolNames()
+	var toolProfileSelect *widget.Select
+	if len(toolNames) > 0 {
+		toolProfileSelect = widget.NewSelect(toolNames, func(selected string) {
+			tool := a.inventory.FindToolByName(selected)
+			if tool == nil {
+				return
+			}
+			tool.ApplyToSettings(&a.project.Settings)
+			// Rebuild the quick settings panel to reflect new values
+			a.rebuildSettingsPanel()
+			a.scheduleOptimize()
+		})
+		toolProfileSelect.PlaceHolder = "Load Tool Profile..."
+	}
+
+	toolDiameterEntry := floatEntry(&s.ToolDiameter)
+	feedRateEntry := floatEntry(&s.FeedRate)
+	plungeRateEntry := floatEntry(&s.PlungeRate)
+	rpmEntry := intEntry(&s.SpindleSpeed)
+
+	toolContent := container.NewVBox()
+	if toolProfileSelect != nil {
+		toolContent.Add(container.NewGridWithColumns(2,
+			widget.NewLabel("Tool Profile"), toolProfileSelect,
+		))
+	}
+	toolContent.Add(container.NewGridWithColumns(2,
+		widget.NewLabel("Diameter (mm)"), toolDiameterEntry,
+		widget.NewLabel("Feed Rate (mm/min)"), feedRateEntry,
+		widget.NewLabel("Plunge Rate (mm/min)"), plungeRateEntry,
+		widget.NewLabel("RPM"), rpmEntry,
+	))
+
+	// --- Material Section ---
+	stockNames := a.inventory.StockNames()
+	var stockPresetSelect *widget.Select
+	if len(stockNames) > 0 {
+		stockPresetSelect = widget.NewSelect(stockNames, func(selected string) {
+			preset := a.inventory.FindStockByName(selected)
+			if preset == nil {
+				return
+			}
+			// Apply stock preset values to kerf/thickness context
+			// (stock sheets are added in the right panel)
+		})
+		stockPresetSelect.PlaceHolder = "Load Stock Preset..."
+	}
+
+	kerfEntry := floatEntry(&s.KerfWidth)
+	edgeTrimEntry := floatEntry(&s.EdgeTrim)
+
+	materialContent := container.NewVBox()
+	if stockPresetSelect != nil {
+		materialContent.Add(container.NewGridWithColumns(2,
+			widget.NewLabel("Stock Preset"), stockPresetSelect,
+		))
+	}
+	materialContent.Add(container.NewGridWithColumns(2,
+		widget.NewLabel("Kerf Width (mm)"), kerfEntry,
+		widget.NewLabel("Edge Trim (mm)"), edgeTrimEntry,
+	))
+
+	// --- Cutting Section ---
+	safeZEntry := floatEntry(&s.SafeZ)
+	cutDepthEntry := floatEntry(&s.CutDepth)
+	passDepthEntry := floatEntry(&s.PassDepth)
+	tabsCheck := widget.NewCheck("Enable Tabs", func(b bool) {
+		s.StockTabs.Enabled = b
+		a.scheduleOptimize()
+	})
+	tabsCheck.Checked = s.StockTabs.Enabled
+
+	cuttingContent := container.NewVBox(
+		container.NewGridWithColumns(2,
+			widget.NewLabel("Safe Z (mm)"), safeZEntry,
+			widget.NewLabel("Cut Depth (mm)"), cutDepthEntry,
+			widget.NewLabel("Pass Depth (mm)"), passDepthEntry,
+		),
+		tabsCheck,
+	)
+
+	// --- Optimizer Section ---
+	algorithmSelect := widget.NewSelect([]string{"Guillotine (Fast)", "Genetic Algorithm (Better)"}, func(selected string) {
+		switch selected {
+		case "Genetic Algorithm (Better)":
+			s.Algorithm = model.AlgorithmGenetic
+		default:
+			s.Algorithm = model.AlgorithmGuillotine
+		}
+		a.scheduleOptimize()
+	})
+	switch s.Algorithm {
+	case model.AlgorithmGenetic:
+		algorithmSelect.SetSelected("Genetic Algorithm (Better)")
+	default:
+		algorithmSelect.SetSelected("Guillotine (Fast)")
+	}
+
+	guillotineCheck := widget.NewCheck("Guillotine Cuts Only", func(b bool) {
+		s.GuillotineOnly = b
+		a.scheduleOptimize()
+	})
+	guillotineCheck.Checked = s.GuillotineOnly
+
+	optimizerContent := container.NewVBox(
+		container.NewGridWithColumns(2,
+			widget.NewLabel("Algorithm"), algorithmSelect,
+		),
+		guillotineCheck,
+	)
+
+	// Build accordion
+	toolItem := widget.NewAccordionItem("Tool", toolContent)
+	materialItem := widget.NewAccordionItem("Material", materialContent)
+	cuttingItem := widget.NewAccordionItem("Cutting", cuttingContent)
+	optimizerItem := widget.NewAccordionItem("Optimizer", optimizerContent)
+
+	accordion := widget.NewAccordion(toolItem, materialItem, cuttingItem, optimizerItem)
+	accordion.MultiOpen = true
+	// Open all sections by default
+	accordion.Open(0)
+	accordion.Open(1)
+	accordion.Open(2)
+	accordion.Open(3)
+
+	// Advanced settings button at bottom
+	advancedBtn := widget.NewButtonWithIcon("Advanced Settings...", theme.SettingsIcon(), func() {
+		a.showAdvancedSettingsDialog()
+	})
+
+	// Store reference so we can rebuild
+	a.settingsContainer = container.NewVBox(accordion, advancedBtn)
+
+	return container.NewBorder(nil, nil, nil, nil,
+		container.NewVScroll(a.settingsContainer),
+	)
+}
+
+// rebuildSettingsPanel rebuilds the quick settings panel when values change externally
+// (e.g., loading a tool profile).
+func (a *App) rebuildSettingsPanel() {
+	if a.tabs != nil && len(a.tabs.Items) > 0 {
+		a.tabs.Items[0].Content = a.buildLayoutEditor()
+		a.tabs.Refresh()
+	}
+}
+
+// ─── Center Panel: Interactive Sheet Canvas ─────────────────
+
+func (a *App) buildCenterCanvas() fyne.CanvasObject {
+	// Create an empty sheet canvas (will be populated after optimization)
+	emptySheet := model.SheetResult{
+		Stock: model.StockSheet{Width: 2440, Height: 1220, Label: "Empty"},
+	}
+	a.sheetCanvas = widgets.NewSheetCanvas(emptySheet, a.project.Settings, 600, 400)
+
+	// Sheet selector buttons
+	a.sheetSelectorBox = container.NewHBox()
+	a.refreshSheetSelector()
+
+	// Zoom controls
+	zoomInBtn := widget.NewButtonWithIcon("", theme.ZoomInIcon(), func() {
+		a.sheetCanvas.SetZoomCentered(a.sheetCanvas.ZoomLevel() * 1.25)
+	})
+	zoomOutBtn := widget.NewButtonWithIcon("", theme.ZoomOutIcon(), func() {
+		a.sheetCanvas.SetZoomCentered(a.sheetCanvas.ZoomLevel() / 1.25)
+	})
+	resetZoomBtn := widget.NewButtonWithIcon("Reset", theme.ViewRestoreIcon(), func() {
+		a.sheetCanvas.ResetZoom()
+	})
+
+	zoomBar := container.NewHBox(
+		zoomOutBtn, zoomInBtn, resetZoomBtn,
+		layout.NewSpacer(),
+	)
+
+	// Empty state or canvas
+	canvasArea := container.NewStack(a.sheetCanvas)
+
+	bottomBar := container.NewVBox(
+		container.NewHBox(a.sheetSelectorBox),
+		zoomBar,
+	)
+
+	return container.NewBorder(nil, bottomBar, nil, nil, canvasArea)
+}
+
+// refreshSheetSelector updates the sheet selector buttons below the canvas.
+func (a *App) refreshSheetSelector() {
+	if a.sheetSelectorBox == nil {
+		return
+	}
+	a.sheetSelectorBox.RemoveAll()
+
+	if a.project.Result == nil || len(a.project.Result.Sheets) == 0 {
+		a.sheetSelectorBox.Add(widget.NewLabel("No sheets"))
+		return
+	}
+
+	for i := range a.project.Result.Sheets {
+		idx := i
+		label := fmt.Sprintf("Sheet %d", idx+1)
+		btn := widget.NewButton(label, func() {
+			a.selectedSheetIdx = idx
+			a.updateCanvasForSheet(idx)
+		})
+		if idx == a.selectedSheetIdx {
+			btn.Importance = widget.HighImportance
+		}
+		a.sheetSelectorBox.Add(btn)
+	}
+}
+
+// updateCanvasForSheet switches the SheetCanvas to display the given sheet index.
+func (a *App) updateCanvasForSheet(idx int) {
+	if a.project.Result == nil || idx >= len(a.project.Result.Sheets) {
+		return
+	}
+	a.selectedSheetIdx = idx
+	sheet := a.project.Result.Sheets[idx]
+	a.sheetCanvas.SetSheet(sheet, a.project.Settings)
+	a.refreshSheetSelector()
+}
+
+// ─── Right Panel: Parts + Stock ─────────────────────────────
+
+func (a *App) buildPartsStockPanel() fyne.CanvasObject {
+	a.partsContainer = container.NewVBox()
+	a.stockContainer = container.NewVBox()
+	a.refreshPartsList()
+	a.refreshStockList()
+
+	// --- Parts Quick-Add ---
+	qaName := widget.NewEntry()
+	qaName.SetPlaceHolder("Name")
+	qaWidth := widget.NewEntry()
+	qaWidth.SetPlaceHolder("W")
+	qaHeight := widget.NewEntry()
+	qaHeight.SetPlaceHolder("H")
+	qaQty := widget.NewEntry()
+	qaQty.SetPlaceHolder("Qty")
+	qaQty.SetText("1")
+	qaGrain := widget.NewSelect([]string{"None", "Horizontal", "Vertical"}, nil)
+	qaGrain.SetSelected("None")
+
+	doPartAdd := func() {
+		label := qaName.Text
+		if label == "" {
+			label = fmt.Sprintf("Part %d", len(a.project.Parts)+1)
+		}
+		w := parseFloat(qaWidth.Text)
+		h := parseFloat(qaHeight.Text)
+		if w <= 0 || h <= 0 {
+			dialog.ShowError(fmt.Errorf("width and height must be positive numbers"), a.window)
+			return
+		}
+		q := parseInt(qaQty.Text)
+		if q <= 0 {
+			q = 1
+		}
+		grain := parseGrain(qaGrain.Selected)
+		a.saveState("Quick Add Part")
+		a.project.Parts = append(a.project.Parts, model.Part{
+			Label:    label,
+			Width:    w,
+			Height:   h,
+			Quantity: q,
+			Grain:    grain,
+		})
+		a.refreshPartsList()
+		qaName.SetText("")
+		qaWidth.SetText("")
+		qaHeight.SetText("")
+		qaQty.SetText("1")
+		qaGrain.SetSelected("None")
+		a.window.Canvas().Focus(qaWidth)
+		a.scheduleOptimize()
+	}
+
+	qaName.OnSubmitted = func(_ string) { doPartAdd() }
+	qaWidth.OnSubmitted = func(_ string) { doPartAdd() }
+	qaHeight.OnSubmitted = func(_ string) { doPartAdd() }
+	qaQty.OnSubmitted = func(_ string) { doPartAdd() }
+
+	partAddBtn := newEnterButton(theme.ContentAddIcon(), doPartAdd)
+
+	partQuickAdd := container.NewVBox(
+		container.NewBorder(nil, nil, nil, partAddBtn, qaName),
+		container.NewGridWithColumns(4, qaWidth, qaHeight, qaQty, qaGrain),
+	)
+
+	addPartMenuBtn := widget.NewButton("More...", nil)
+	addPartMenu := fyne.NewMenu("",
+		fyne.NewMenuItem("Add Part (detailed)...", func() {
+			a.showAddPartDialog()
+		}),
+		fyne.NewMenuItem("Add from Library...", func() {
+			a.showAddFromLibraryDialog()
+		}),
+		fyne.NewMenuItem("Import from DXF...", func() {
+			a.importDXF()
+		}),
+	)
+	addPartMenuBtn.OnTapped = func() {
+		pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(addPartMenuBtn)
+		pos.Y += addPartMenuBtn.Size().Height
+		widget.ShowPopUpMenuAtPosition(addPartMenu, a.window.Canvas(), pos)
+	}
+
+	partsHeader := container.NewHBox(
+		widget.NewLabelWithStyle(fmt.Sprintf("Parts (%d)", len(a.project.Parts)),
+			fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		layout.NewSpacer(),
+		addPartMenuBtn,
+	)
+
+	partsContent := container.NewVBox(
+		partsHeader,
+		partQuickAdd,
+		widget.NewSeparator(),
+		container.NewVScroll(a.partsContainer),
+	)
+
+	// --- Stock Quick-Add ---
+	sqaName := widget.NewEntry()
+	sqaName.SetPlaceHolder("Name")
+	sqaName.SetText("Plywood")
+	sqaWidth := widget.NewEntry()
+	sqaWidth.SetPlaceHolder("W")
+	sqaHeight := widget.NewEntry()
+	sqaHeight.SetPlaceHolder("H")
+	sqaThick := widget.NewEntry()
+	sqaThick.SetPlaceHolder("Thick")
+	sqaThick.SetText("18")
+	sqaQty := widget.NewEntry()
+	sqaQty.SetPlaceHolder("Qty")
+	sqaQty.SetText("1")
+
+	doStockAdd := func() {
+		label := sqaName.Text
+		if label == "" {
+			label = fmt.Sprintf("Sheet %d", len(a.project.Stocks)+1)
+		}
+		w := parseFloat(sqaWidth.Text)
+		h := parseFloat(sqaHeight.Text)
+		if w <= 0 || h <= 0 {
+			dialog.ShowError(fmt.Errorf("width and height must be positive numbers"), a.window)
+			return
+		}
+		th := parseFloat(sqaThick.Text)
+		if th <= 0 {
+			th = 18
+		}
+		q := parseInt(sqaQty.Text)
+		if q <= 0 {
+			q = 1
+		}
+		a.saveState("Quick Add Stock")
+		a.project.Stocks = append(a.project.Stocks, model.StockSheet{
+			Label:     label,
+			Width:     w,
+			Height:    h,
+			Thickness: th,
+			Quantity:  q,
+			Grain:     model.GrainNone,
+		})
+		a.refreshStockList()
+		sqaName.SetText("Plywood")
+		sqaWidth.SetText("")
+		sqaHeight.SetText("")
+		sqaThick.SetText("18")
+		sqaQty.SetText("1")
+		a.window.Canvas().Focus(sqaWidth)
+		a.scheduleOptimize()
+	}
+
+	sqaName.OnSubmitted = func(_ string) { doStockAdd() }
+	sqaWidth.OnSubmitted = func(_ string) { doStockAdd() }
+	sqaHeight.OnSubmitted = func(_ string) { doStockAdd() }
+	sqaThick.OnSubmitted = func(_ string) { doStockAdd() }
+	sqaQty.OnSubmitted = func(_ string) { doStockAdd() }
+
+	stockAddBtn := newEnterButton(theme.ContentAddIcon(), doStockAdd)
+
+	stockQuickAdd := container.NewVBox(
+		container.NewBorder(nil, nil, nil, stockAddBtn, sqaName),
+		container.NewGridWithColumns(4, sqaWidth, sqaHeight, sqaThick, sqaQty),
+	)
+
+	addStockMenuBtn := widget.NewButton("More...", nil)
+	addStockMenu := fyne.NewMenu("",
+		fyne.NewMenuItem("Add Stock (detailed)...", func() {
+			a.showAddStockDialog()
+		}),
+		fyne.NewMenuItem("Add from Inventory...", func() {
+			a.showAddStockFromInventory()
+		}),
+	)
+	addStockMenuBtn.OnTapped = func() {
+		pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(addStockMenuBtn)
+		pos.Y += addStockMenuBtn.Size().Height
+		widget.ShowPopUpMenuAtPosition(addStockMenu, a.window.Canvas(), pos)
+	}
+
+	stockHeader := container.NewHBox(
+		widget.NewLabelWithStyle(fmt.Sprintf("Stock Sheets (%d)", len(a.project.Stocks)),
+			fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		layout.NewSpacer(),
+		addStockMenuBtn,
+	)
+
+	stockContent := container.NewVBox(
+		stockHeader,
+		stockQuickAdd,
+		widget.NewSeparator(),
+		container.NewVScroll(a.stockContainer),
+	)
+
+	// Build accordion
+	partsItem := widget.NewAccordionItem("Parts", partsContent)
+	stockItem := widget.NewAccordionItem("Stock Sheets", stockContent)
+	rightAccordion := widget.NewAccordion(partsItem, stockItem)
+	rightAccordion.MultiOpen = true
+	rightAccordion.Open(0)
+	rightAccordion.Open(1)
+
+	return container.NewVScroll(rightAccordion)
+}
+
+// refreshPartsList rebuilds the parts card list in the right panel.
+func (a *App) refreshPartsList() {
+	if a.partsContainer == nil {
+		return
+	}
+	a.partsContainer.RemoveAll()
+
+	if len(a.project.Parts) == 0 {
+		a.partsContainer.Add(widget.NewLabel("No parts added yet."))
+		return
+	}
+
+	for i := range a.project.Parts {
+		idx := i
+		p := a.project.Parts[idx]
+
+		// Part card: name + dimensions on two lines, with edit/delete buttons
+		nameLabel := widget.NewLabelWithStyle(p.Label, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+
+		detailText := fmt.Sprintf("%.0f x %.0f mm  x%d", p.Width, p.Height, p.Quantity)
+		if p.Grain != model.GrainNone {
+			detailText += fmt.Sprintf("  Grain: %s", p.Grain.String())
+		}
+		if p.Material != "" {
+			detailText += fmt.Sprintf("  [%s]", p.Material)
+		}
+		detailLabel := widget.NewLabel(detailText)
+
+		editBtn := widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
+			a.showEditPartDialog(idx)
+		})
+		deleteBtn := widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
+			a.saveState("Delete Part")
+			a.project.Parts = append(a.project.Parts[:idx], a.project.Parts[idx+1:]...)
+			a.refreshPartsList()
+			a.scheduleOptimize()
+		})
+		saveBtn := widget.NewButtonWithIcon("", theme.DownloadIcon(), func() {
+			a.showSaveToLibraryDialog(a.project.Parts[idx])
+		})
+
+		buttons := container.NewHBox(editBtn, saveBtn, deleteBtn)
+		topRow := container.NewBorder(nil, nil, nil, buttons, nameLabel)
+
+		card := container.NewVBox(topRow, detailLabel, widget.NewSeparator())
+		a.partsContainer.Add(card)
+	}
+}
+
+// refreshStockList rebuilds the stock card list in the right panel.
+func (a *App) refreshStockList() {
+	if a.stockContainer == nil {
+		return
+	}
+	a.stockContainer.RemoveAll()
+
+	if len(a.project.Stocks) == 0 {
+		a.stockContainer.Add(widget.NewLabel("No stock sheets defined."))
+		return
+	}
+
+	for i := range a.project.Stocks {
+		idx := i
+		s := a.project.Stocks[idx]
+
+		nameLabel := widget.NewLabelWithStyle(s.Label, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+
+		thicknessVal := s.Thickness
+		if thicknessVal <= 0 {
+			thicknessVal = 18
+		}
+		detailText := fmt.Sprintf("%.0f x %.0f mm  %.0fmm thick  x%d", s.Width, s.Height, thicknessVal, s.Quantity)
+		if s.Grain != model.GrainNone {
+			detailText += fmt.Sprintf("  Grain: %s", s.Grain.String())
+		}
+		if s.Material != "" {
+			detailText += fmt.Sprintf("  [%s]", s.Material)
+		}
+		detailLabel := widget.NewLabel(detailText)
+
+		editBtn := widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
+			a.showEditStockDialog(idx)
+		})
+		deleteBtn := widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
+			a.saveState("Delete Stock Sheet")
+			a.project.Stocks = append(a.project.Stocks[:idx], a.project.Stocks[idx+1:]...)
+			a.refreshStockList()
+			a.scheduleOptimize()
+		})
+
+		buttons := container.NewHBox(editBtn, deleteBtn)
+		topRow := container.NewBorder(nil, nil, nil, buttons, nameLabel)
+
+		card := container.NewVBox(topRow, detailLabel, widget.NewSeparator())
+		a.stockContainer.Add(card)
+	}
+}
+
+// ─── GCode Preview Tab ──────────────────────────────────────
+
+func (a *App) buildGCodePreviewTab() fyne.CanvasObject {
+	a.gcodePreviewBox = container.NewStack(
+		container.NewCenter(
+			widget.NewLabel("Run optimization first, then switch here to preview GCode toolpaths."),
+		),
+	)
+	return a.gcodePreviewBox
+}
+
+// refreshGCodePreview rebuilds the GCode preview tab content.
+func (a *App) refreshGCodePreview() {
+	if a.gcodePreviewBox == nil {
+		return
+	}
+	a.gcodePreviewBox.RemoveAll()
+
+	if a.project.Result == nil || len(a.project.Result.Sheets) == 0 {
+		a.gcodePreviewBox.Add(container.NewCenter(
+			widget.NewLabel("Run optimization first, then switch here to preview GCode toolpaths."),
+		))
+		a.gcodePreviewBox.Refresh()
+		return
+	}
+
+	gen := gcode.New(a.project.Settings)
+	codes := gen.GenerateAll(*a.project.Result)
+
+	// Sheet selector dropdown
+	sheetNames := make([]string, len(a.project.Result.Sheets))
+	for i := range a.project.Result.Sheets {
+		sheetNames[i] = fmt.Sprintf("Sheet %d", i+1)
+	}
+
+	// Profile selector
+	profileNames := model.GetProfileNames()
+	profileSelect := widget.NewSelect(profileNames, func(selected string) {
+		a.project.Settings.GCodeProfile = selected
+	})
+	profileSelect.SetSelected(a.project.Settings.GCodeProfile)
+
+	// Default to first sheet
+	previewIdx := 0
+	if previewIdx < len(codes) {
+		sheet := a.project.Result.Sheets[previewIdx]
+		sim := widgets.RenderGCodeSimulation(sheet, a.project.Settings, codes[previewIdx])
+
+		var sheetSelect *widget.Select
+		sheetSelect = widget.NewSelect(sheetNames, func(selected string) {
+			for i, name := range sheetNames {
+				if name == selected && i < len(codes) {
+					a.gcodePreviewBox.RemoveAll()
+					newSheet := a.project.Result.Sheets[i]
+					newSim := widgets.RenderGCodeSimulation(newSheet, a.project.Settings, codes[i])
+					newTopBar := container.NewHBox(
+						widget.NewLabel("Sheet:"),
+						sheetSelect,
+						layout.NewSpacer(),
+						widget.NewLabel("GCode Profile:"),
+						profileSelect,
+					)
+					a.gcodePreviewBox.Add(container.NewBorder(newTopBar, nil, nil, nil, newSim))
+					a.gcodePreviewBox.Refresh()
+					break
+				}
+			}
+		})
+		sheetSelect.SetSelected(sheetNames[previewIdx])
+
+		topBar := container.NewHBox(
+			widget.NewLabel("Sheet:"),
+			sheetSelect,
+			layout.NewSpacer(),
+			widget.NewLabel("GCode Profile:"),
+			profileSelect,
+		)
+
+		a.gcodePreviewBox.Add(container.NewBorder(topBar, nil, nil, nil, sim))
+	}
+	a.gcodePreviewBox.Refresh()
+}
+
+// ─── Auto-Optimize ──────────────────────────────────────────
+
+// scheduleOptimize debounces optimization with a 500ms delay.
+func (a *App) scheduleOptimize() {
+	a.optimizeMu.Lock()
+	defer a.optimizeMu.Unlock()
+	if a.optimizeTimer != nil {
+		a.optimizeTimer.Stop()
+	}
+	a.optimizeTimer = time.AfterFunc(500*time.Millisecond, func() {
+		a.runAutoOptimize()
+	})
+}
+
+// runAutoOptimize runs the optimizer in a goroutine and updates the UI on the main thread.
+func (a *App) runAutoOptimize() {
+	if len(a.project.Parts) == 0 || len(a.project.Stocks) == 0 {
+		// Clear results if nothing to optimize
+		a.project.Result = nil
+		a.lastCollisions = nil
+		a.updateStatusBar()
+		a.refreshSheetSelector()
+		if a.sheetCanvas != nil {
+			emptySheet := model.SheetResult{
+				Stock: model.StockSheet{Width: 2440, Height: 1220, Label: "Empty"},
+			}
+			a.sheetCanvas.SetSheet(emptySheet, a.project.Settings)
+		}
+		return
+	}
+
+	// Update status
+	if a.statusLabel != nil {
+		a.statusLabel.SetText("Optimizing...")
+	}
+
+	go func() {
+		opt := engine.New(a.project.Settings)
+		result := opt.Optimize(a.project.Parts, a.project.Stocks)
+
+		// Run dust shoe collision detection
+		collisions := gcode.CheckDustShoeCollisions(result, a.project.Settings)
+
+		// Update on UI thread
+		a.project.Result = &result
+		a.lastCollisions = collisions
+		a.updateStatusBar()
+		a.refreshSheetSelector()
+		a.refreshGCodePreview()
+
+		// Update canvas with first sheet
+		if len(result.Sheets) > 0 {
+			if a.selectedSheetIdx >= len(result.Sheets) {
+				a.selectedSheetIdx = 0
+			}
+			a.updateCanvasForSheet(a.selectedSheetIdx)
+		}
+	}()
+}
+
+// updateStatusBar updates the center status label with optimization summary.
+func (a *App) updateStatusBar() {
+	if a.statusLabel == nil {
+		return
+	}
+	if a.project.Result == nil || len(a.project.Result.Sheets) == 0 {
+		a.statusLabel.SetText("No optimization yet")
+		return
+	}
+
+	r := a.project.Result
+	text := fmt.Sprintf("%d sheet(s), %.1f%% efficiency", len(r.Sheets), r.TotalEfficiency())
+	if len(r.UnplacedParts) > 0 {
+		text += fmt.Sprintf(" | %d unplaced!", len(r.UnplacedParts))
+	}
+	if r.HasPricing() {
+		text += fmt.Sprintf(" | Cost: %.2f", r.TotalCost())
+	}
+	a.statusLabel.SetText(text)
+}
+
+// refreshResults is a compatibility shim that triggers the new UI updates.
+func (a *App) refreshResults() {
+	a.updateStatusBar()
+	a.refreshSheetSelector()
+	if a.project.Result != nil && len(a.project.Result.Sheets) > 0 {
+		if a.selectedSheetIdx >= len(a.project.Result.Sheets) {
+			a.selectedSheetIdx = 0
+		}
+		a.updateCanvasForSheet(a.selectedSheetIdx)
+	}
+	a.refreshGCodePreview()
+}
+
+// ─── History (Undo/Redo) ────────────────────────────────────
 
 // saveState captures the current project state before a modification.
 func (a *App) saveState(label string) {
@@ -311,6 +1105,7 @@ func (a *App) undo() {
 	a.project.Stocks = snap.Stocks
 	a.refreshPartsList()
 	a.refreshStockList()
+	a.scheduleOptimize()
 }
 
 // redo restores the next state from the redo stack.
@@ -324,6 +1119,7 @@ func (a *App) redo() {
 	a.project.Stocks = snap.Stocks
 	a.refreshPartsList()
 	a.refreshStockList()
+	a.scheduleOptimize()
 }
 
 // registerShortcuts adds keyboard shortcuts for undo and redo.
@@ -387,165 +1183,7 @@ func (b *enterButton) TypedKey(ev *fyne.KeyEvent) {
 	b.Button.TypedKey(ev)
 }
 
-// ─── Parts Panel ───────────────────────────────────────────
-
-func (a *App) buildPartsPanel() fyne.CanvasObject {
-	a.partsContainer = container.NewVBox()
-	a.refreshPartsList()
-
-	// Quick-add row: Label, Width, Height, Qty, Grain, + button
-	qaLabel := widget.NewEntry()
-	qaLabel.SetPlaceHolder("Name")
-	qaWidth := widget.NewEntry()
-	qaWidth.SetPlaceHolder("Width")
-	qaHeight := widget.NewEntry()
-	qaHeight.SetPlaceHolder("Height")
-	qaQty := widget.NewEntry()
-	qaQty.SetPlaceHolder("Qty")
-	qaQty.SetText("1")
-	qaGrain := widget.NewSelect([]string{"None", "Horizontal", "Vertical"}, nil)
-	qaGrain.SetSelected("None")
-
-	doQuickAdd := func() {
-		label := qaLabel.Text
-		if label == "" {
-			label = fmt.Sprintf("Part %d", len(a.project.Parts)+1)
-		}
-		w := parseFloat(qaWidth.Text)
-		h := parseFloat(qaHeight.Text)
-		if w <= 0 || h <= 0 {
-			dialog.ShowError(fmt.Errorf("width and height must be positive numbers"), a.window)
-			return
-		}
-		q := parseInt(qaQty.Text)
-		if q <= 0 {
-			q = 1
-		}
-		grain := parseGrain(qaGrain.Selected)
-		a.saveState("Quick Add Part")
-		a.project.Parts = append(a.project.Parts, model.Part{
-			Label:    label,
-			Width:    w,
-			Height:   h,
-			Quantity: q,
-			Grain:    grain,
-		})
-		a.refreshPartsList()
-		// Reset fields for next entry
-		qaLabel.SetText(fmt.Sprintf("Part %d", len(a.project.Parts)+1))
-		qaWidth.SetText("")
-		qaHeight.SetText("")
-		qaQty.SetText("1")
-		qaGrain.SetSelected("None")
-		a.window.Canvas().Focus(qaWidth)
-	}
-
-	// Enter key on any field triggers add
-	qaLabel.OnSubmitted = func(_ string) { doQuickAdd() }
-	qaWidth.OnSubmitted = func(_ string) { doQuickAdd() }
-	qaHeight.OnSubmitted = func(_ string) { doQuickAdd() }
-	qaQty.OnSubmitted = func(_ string) { doQuickAdd() }
-
-	qaAddBtn := newEnterButton(theme.ContentAddIcon(), doQuickAdd)
-
-	quickAddRow := container.NewGridWithColumns(6, qaLabel, qaWidth, qaHeight, qaQty, qaGrain, qaAddBtn)
-
-	// Dropdown-style add button: "Add Part..." (dialog) or "Import DXF..."
-	addMenuBtn := widget.NewButton("Add Part...", nil)
-	addMenu := fyne.NewMenu("",
-		fyne.NewMenuItem("Add Part (detailed)...", func() {
-			a.showAddPartDialog()
-		}),
-		fyne.NewMenuItem("Import from DXF...", func() {
-			a.importDXF()
-		}),
-	)
-	addMenuBtn.OnTapped = func() {
-		pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(addMenuBtn)
-		pos.Y += addMenuBtn.Size().Height
-		widget.ShowPopUpMenuAtPosition(addMenu, a.window.Canvas(), pos)
-	}
-
-	addFromLibBtn := widget.NewButtonWithIcon("Add from Library", theme.FolderOpenIcon(), func() {
-		a.showAddFromLibraryDialog()
-	})
-
-	return container.NewBorder(
-		container.NewVBox(
-			container.NewHBox(
-				widget.NewLabelWithStyle("Required Parts", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-				layout.NewSpacer(),
-				addFromLibBtn,
-				addMenuBtn,
-			),
-			quickAddRow,
-			widget.NewSeparator(),
-		),
-		nil, nil, nil,
-		container.NewVScroll(a.partsContainer),
-	)
-}
-
-func (a *App) refreshPartsList() {
-	a.partsContainer.RemoveAll()
-
-	if len(a.project.Parts) == 0 {
-		a.partsContainer.Add(widget.NewLabel("No parts added yet. Click 'Add Part' to begin."))
-		return
-	}
-
-	// Header
-	header := container.NewGridWithColumns(11,
-		widget.NewLabelWithStyle("Label", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabelWithStyle("Width (mm)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabelWithStyle("Height (mm)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabelWithStyle("Qty", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabelWithStyle("Grain", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabelWithStyle("Material", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabelWithStyle("Cutouts", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabelWithStyle("Banding", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{}),
-		widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{}),
-		widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{}),
-	)
-	a.partsContainer.Add(header)
-	a.partsContainer.Add(widget.NewSeparator())
-
-	for i := range a.project.Parts {
-		idx := i // capture
-		p := a.project.Parts[idx]
-		matLabel := "-"
-		if p.Material != "" {
-			matLabel = p.Material
-		}
-		cutoutLabel := "-"
-		if len(p.Cutouts) > 0 {
-			cutoutLabel = fmt.Sprintf("%d", len(p.Cutouts))
-		}
-		row := container.NewGridWithColumns(11,
-			widget.NewLabel(p.Label),
-			widget.NewLabel(fmt.Sprintf("%.1f", p.Width)),
-			widget.NewLabel(fmt.Sprintf("%.1f", p.Height)),
-			widget.NewLabel(fmt.Sprintf("%d", p.Quantity)),
-			widget.NewLabel(p.Grain.String()),
-			widget.NewLabel(matLabel),
-			widget.NewLabel(cutoutLabel),
-			widget.NewLabel(p.EdgeBanding.String()),
-			widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
-				a.showEditPartDialog(idx)
-			}),
-			widget.NewButtonWithIcon("", theme.DownloadIcon(), func() {
-				a.showSaveToLibraryDialog(a.project.Parts[idx])
-			}),
-			widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
-				a.saveState("Delete Part")
-				a.project.Parts = append(a.project.Parts[:idx], a.project.Parts[idx+1:]...)
-				a.refreshPartsList()
-			}),
-		)
-		a.partsContainer.Add(row)
-	}
-}
+// ─── Part Dialogs ───────────────────────────────────────────
 
 func (a *App) showAddPartDialog() {
 	labelEntry := widget.NewEntry()
@@ -613,6 +1251,7 @@ func (a *App) showAddPartDialog() {
 			a.saveState("Add Part")
 			a.project.Parts = append(a.project.Parts, part)
 			a.refreshPartsList()
+			a.scheduleOptimize()
 		},
 		a.window,
 	)
@@ -675,7 +1314,6 @@ func (a *App) showEditPartDialog(idx int) {
 				return
 			}
 
-			// Update the existing part
 			a.saveState("Edit Part")
 			a.project.Parts[idx].Label = labelEntry.Text
 			a.project.Parts[idx].Width = w
@@ -697,6 +1335,7 @@ func (a *App) showEditPartDialog(idx int) {
 				Right:  bandRight.Checked,
 			}
 			a.refreshPartsList()
+			a.scheduleOptimize()
 		},
 		a.window,
 	)
@@ -704,169 +1343,7 @@ func (a *App) showEditPartDialog(idx int) {
 	form.Show()
 }
 
-// ─── Stock Sheets Panel ────────────────────────────────────
-
-func (a *App) buildStockPanel() fyne.CanvasObject {
-	a.stockContainer = container.NewVBox()
-	a.refreshStockList()
-
-	// Quick-add row: Label, Width, Height, Thickness, Qty, Grain, + button
-	qaLabel := widget.NewEntry()
-	qaLabel.SetPlaceHolder("Name")
-	qaLabel.SetText("Plywood")
-	qaWidth := widget.NewEntry()
-	qaWidth.SetPlaceHolder("Width")
-	qaHeight := widget.NewEntry()
-	qaHeight.SetPlaceHolder("Height")
-	qaThickness := widget.NewEntry()
-	qaThickness.SetPlaceHolder("Thickness")
-	qaThickness.SetText("18")
-	qaQty := widget.NewEntry()
-	qaQty.SetPlaceHolder("Qty")
-	qaQty.SetText("1")
-	qaGrain := widget.NewSelect([]string{"None", "Horizontal", "Vertical"}, nil)
-	qaGrain.SetSelected("None")
-
-	doQuickAdd := func() {
-		label := qaLabel.Text
-		if label == "" {
-			label = fmt.Sprintf("Sheet %d", len(a.project.Stocks)+1)
-		}
-		w := parseFloat(qaWidth.Text)
-		h := parseFloat(qaHeight.Text)
-		if w <= 0 || h <= 0 {
-			dialog.ShowError(fmt.Errorf("width and height must be positive numbers"), a.window)
-			return
-		}
-		th := parseFloat(qaThickness.Text)
-		if th <= 0 {
-			th = 18
-		}
-		q := parseInt(qaQty.Text)
-		if q <= 0 {
-			q = 1
-		}
-		grain := parseGrain(qaGrain.Selected)
-		a.saveState("Quick Add Stock")
-		a.project.Stocks = append(a.project.Stocks, model.StockSheet{
-			Label:     label,
-			Width:     w,
-			Height:    h,
-			Thickness: th,
-			Quantity:  q,
-			Grain:     grain,
-		})
-		a.refreshStockList()
-		// Reset for next entry
-		qaLabel.SetText("Plywood")
-		qaWidth.SetText("")
-		qaHeight.SetText("")
-		qaThickness.SetText("18")
-		qaQty.SetText("1")
-		qaGrain.SetSelected("None")
-		a.window.Canvas().Focus(qaWidth)
-	}
-
-	qaLabel.OnSubmitted = func(_ string) { doQuickAdd() }
-	qaWidth.OnSubmitted = func(_ string) { doQuickAdd() }
-	qaHeight.OnSubmitted = func(_ string) { doQuickAdd() }
-	qaThickness.OnSubmitted = func(_ string) { doQuickAdd() }
-	qaQty.OnSubmitted = func(_ string) { doQuickAdd() }
-
-	qaAddBtn := newEnterButton(theme.ContentAddIcon(), doQuickAdd)
-
-	quickAddRow := container.NewGridWithColumns(7, qaLabel, qaWidth, qaHeight, qaThickness, qaQty, qaGrain, qaAddBtn)
-
-	// Dropdown-style add button for detailed dialog and inventory
-	addMenuBtn := widget.NewButton("Add Stock...", nil)
-	addMenu := fyne.NewMenu("",
-		fyne.NewMenuItem("Add Stock (detailed)...", func() {
-			a.showAddStockDialog()
-		}),
-		fyne.NewMenuItem("Add from Inventory...", func() {
-			a.showAddStockFromInventory()
-		}),
-	)
-	addMenuBtn.OnTapped = func() {
-		pos := fyne.CurrentApp().Driver().AbsolutePositionForObject(addMenuBtn)
-		pos.Y += addMenuBtn.Size().Height
-		widget.ShowPopUpMenuAtPosition(addMenu, a.window.Canvas(), pos)
-	}
-
-	return container.NewBorder(
-		container.NewVBox(
-			container.NewHBox(
-				widget.NewLabelWithStyle("Available Stock Sheets", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-				layout.NewSpacer(),
-				addMenuBtn,
-			),
-			quickAddRow,
-			widget.NewSeparator(),
-		),
-		nil, nil, nil,
-		container.NewVScroll(a.stockContainer),
-	)
-}
-
-func (a *App) refreshStockList() {
-	a.stockContainer.RemoveAll()
-
-	if len(a.project.Stocks) == 0 {
-		a.stockContainer.Add(widget.NewLabel("No stock sheets defined. Click 'Add Stock Sheet' to begin."))
-		return
-	}
-
-	header := container.NewGridWithColumns(10,
-		widget.NewLabelWithStyle("Label", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabelWithStyle("Width (mm)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabelWithStyle("Height (mm)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabelWithStyle("Thick (mm)", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabelWithStyle("Qty", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabelWithStyle("Grain", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabelWithStyle("Material", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabelWithStyle("Price/Sheet", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{}),
-		widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{}),
-	)
-	a.stockContainer.Add(header)
-	a.stockContainer.Add(widget.NewSeparator())
-
-	for i := range a.project.Stocks {
-		idx := i
-		s := a.project.Stocks[idx]
-		priceLabel := "-"
-		if s.PricePerSheet > 0 {
-			priceLabel = fmt.Sprintf("%.2f", s.PricePerSheet)
-		}
-		stockMatLabel := "-"
-		if s.Material != "" {
-			stockMatLabel = s.Material
-		}
-		thicknessVal := s.Thickness
-		if thicknessVal <= 0 {
-			thicknessVal = 18
-		}
-		row := container.NewGridWithColumns(10,
-			widget.NewLabel(s.Label),
-			widget.NewLabel(fmt.Sprintf("%.1f", s.Width)),
-			widget.NewLabel(fmt.Sprintf("%.1f", s.Height)),
-			widget.NewLabel(fmt.Sprintf("%.1f", thicknessVal)),
-			widget.NewLabel(fmt.Sprintf("%d", s.Quantity)),
-			widget.NewLabel(s.Grain.String()),
-			widget.NewLabel(stockMatLabel),
-			widget.NewLabel(priceLabel),
-			widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
-				a.showEditStockDialog(idx)
-			}),
-			widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
-				a.saveState("Delete Stock Sheet")
-				a.project.Stocks = append(a.project.Stocks[:idx], a.project.Stocks[idx+1:]...)
-				a.refreshStockList()
-			}),
-		)
-		a.stockContainer.Add(row)
-	}
-}
+// ─── Stock Sheet Dialogs ────────────────────────────────────
 
 // stockPreset defines a common stock sheet size for quick selection.
 type stockPreset struct {
@@ -900,7 +1377,6 @@ func (a *App) showAddStockDialog() {
 	qtyEntry := widget.NewEntry()
 	qtyEntry.SetText("1")
 
-	// Build preset names for the dropdown
 	presetNames := make([]string, len(stockPresets))
 	for i, p := range stockPresets {
 		presetNames[i] = p.Label
@@ -971,6 +1447,7 @@ func (a *App) showAddStockDialog() {
 			sheet.PricePerSheet, _ = strconv.ParseFloat(priceEntry.Text, 64)
 			a.project.Stocks = append(a.project.Stocks, sheet)
 			a.refreshStockList()
+			a.scheduleOptimize()
 		},
 		a.window,
 	)
@@ -1053,6 +1530,7 @@ func (a *App) showEditStockDialog(idx int) {
 			a.project.Stocks[idx].Material = strings.TrimSpace(editStockMaterialEntry.Text)
 			a.project.Stocks[idx].PricePerSheet, _ = strconv.ParseFloat(priceEntry.Text, 64)
 			a.refreshStockList()
+			a.scheduleOptimize()
 		},
 		a.window,
 	)
@@ -1060,166 +1538,21 @@ func (a *App) showEditStockDialog(idx int) {
 	form.Show()
 }
 
-// ─── Settings Panel ────────────────────────────────────────
+// ─── Settings Panel (legacy, now in advanced_settings.go) ───
 
-func (a *App) buildSettingsPanel() fyne.CanvasObject {
-	s := &a.project.Settings
-
-	// Helper to create a bound float entry
-	floatEntry := func(val *float64) *widget.Entry {
-		e := widget.NewEntry()
-		e.SetText(fmt.Sprintf("%.1f", *val))
-		e.OnChanged = func(text string) {
-			if v, err := strconv.ParseFloat(text, 64); err == nil {
-				*val = v
-			}
-		}
-		return e
-	}
-
-	intEntry := func(val *int) *widget.Entry {
-		e := widget.NewEntry()
-		e.SetText(fmt.Sprintf("%d", *val))
-		e.OnChanged = func(text string) {
-			if v, err := strconv.Atoi(text); err == nil {
-				*val = v
-			}
-		}
-		return e
-	}
-
-	algorithmSelect := widget.NewSelect([]string{"Guillotine (Fast)", "Genetic Algorithm (Better)"}, func(selected string) {
-		switch selected {
-		case "Genetic Algorithm (Better)":
-			s.Algorithm = model.AlgorithmGenetic
-		default:
-			s.Algorithm = model.AlgorithmGuillotine
-		}
+// buildProfileSelector creates the GCode profile selector widget.
+func (a *App) buildProfileSelector() fyne.CanvasObject {
+	profileNames := model.GetProfileNames()
+	a.profileSelector = widget.NewSelect(profileNames, func(selected string) {
+		a.project.Settings.GCodeProfile = selected
 	})
-	switch s.Algorithm {
-	case model.AlgorithmGenetic:
-		algorithmSelect.SetSelected("Genetic Algorithm (Better)")
-	default:
-		algorithmSelect.SetSelected("Guillotine (Fast)")
-	}
+	a.profileSelector.SetSelected(a.project.Settings.GCodeProfile)
 
-	optimizerSection := widget.NewCard("Optimizer", "", container.NewGridWithColumns(2,
-		widget.NewLabel("Algorithm"), algorithmSelect,
-		widget.NewLabel("Kerf / Blade Width (mm)"), floatEntry(&s.KerfWidth),
-		widget.NewLabel("Edge Trim (mm)"), floatEntry(&s.EdgeTrim),
-		widget.NewLabel("Guillotine Cuts Only"), widget.NewCheck("", func(b bool) { s.GuillotineOnly = b }),
-		widget.NewLabel("Nesting Rotations (outline parts)"), intEntry(&s.NestingRotations),
-	))
-
-	optimizeToolpathCheck := widget.NewCheck("", func(b bool) { s.OptimizeToolpath = b })
-	optimizeToolpathCheck.Checked = s.OptimizeToolpath
-
-	structuralOrderCheck := widget.NewCheck("", func(b bool) { s.StructuralOrdering = b })
-	structuralOrderCheck.Checked = s.StructuralOrdering
-
-	cncSection := widget.NewCard("CNC / GCode", "", container.NewGridWithColumns(2,
-		widget.NewLabel("Load Tool Profile"), a.buildToolProfileSelector(),
-		widget.NewLabel("GCode Profile"), a.buildProfileSelector(),
-		widget.NewLabel("Tool Diameter (mm)"), floatEntry(&s.ToolDiameter),
-		widget.NewLabel("Feed Rate (mm/min)"), floatEntry(&s.FeedRate),
-		widget.NewLabel("Plunge Rate (mm/min)"), floatEntry(&s.PlungeRate),
-		widget.NewLabel("Spindle Speed (RPM)"), intEntry(&s.SpindleSpeed),
-		widget.NewLabel("Safe Z Height (mm)"), floatEntry(&s.SafeZ),
-		widget.NewLabel("Default Cut Depth (mm)"), floatEntry(&s.CutDepth),
-		widget.NewLabel("Depth per Pass (mm)"), floatEntry(&s.PassDepth),
-		widget.NewLabel("Optimize Toolpath Order"), optimizeToolpathCheck,
-		widget.NewLabel("Structural Cut Ordering"), structuralOrderCheck,
-	))
-
-	leadInOutSection := widget.NewCard("Lead-In / Lead-Out Arcs", "Arc approach and exit for smoother cuts", container.NewGridWithColumns(2,
-		widget.NewLabel("Lead-In Radius (mm)"), floatEntry(&s.LeadInRadius),
-		widget.NewLabel("Lead-Out Radius (mm)"), floatEntry(&s.LeadOutRadius),
-		widget.NewLabel("Approach Angle (degrees)"), floatEntry(&s.LeadInAngle),
-	))
-
-	plungeTypeSelect := widget.NewSelect(model.PlungeTypeOptions(), func(selected string) {
-		s.PlungeType = model.PlungeTypeFromString(selected)
+	manageBtn := widget.NewButtonWithIcon("", theme.SettingsIcon(), func() {
+		a.showProfileManager()
 	})
-	plungeTypeSelect.SetSelected(s.PlungeType.String())
 
-	plungeSection := widget.NewCard("Plunge Entry Strategy", "How the tool enters the material", container.NewGridWithColumns(2,
-		widget.NewLabel("Plunge Type"), plungeTypeSelect,
-		widget.NewLabel("Ramp Angle (degrees)"), floatEntry(&s.RampAngle),
-		widget.NewLabel("Helix Diameter (mm)"), floatEntry(&s.HelixDiameter),
-		widget.NewLabel("Helix Depth/Rev (%)"), floatEntry(&s.HelixRevPercent),
-	))
-
-	cornerOvercutSelect := widget.NewSelect(model.CornerOvercutOptions(), func(selected string) {
-		s.CornerOvercut = model.CornerOvercutFromString(selected)
-	})
-	cornerOvercutSelect.SetSelected(s.CornerOvercut.String())
-
-	cornerSection := widget.NewCard("Corner Overcuts", "Relief cuts for square interior corners", container.NewGridWithColumns(2,
-		widget.NewLabel("Corner Type"), cornerOvercutSelect,
-	))
-
-	onionSkinCheck := widget.NewCheck("", func(b bool) { s.OnionSkinEnabled = b })
-	onionSkinCheck.Checked = s.OnionSkinEnabled
-	onionCleanupCheck := widget.NewCheck("", func(b bool) { s.OnionSkinCleanup = b })
-	onionCleanupCheck.Checked = s.OnionSkinCleanup
-
-	onionSkinSection := widget.NewCard("Onion Skinning", "Leave thin layer on final pass to prevent part movement", container.NewGridWithColumns(2,
-		widget.NewLabel("Enable Onion Skin"), onionSkinCheck,
-		widget.NewLabel("Skin Thickness (mm)"), floatEntry(&s.OnionSkinDepth),
-		widget.NewLabel("Generate Cleanup Pass"), onionCleanupCheck,
-	))
-
-	// Stock sheet holding tabs (for securing sheet to CNC bed)
-	stockTabEnabled := widget.NewCheck("", func(b bool) { s.StockTabs.Enabled = b })
-	stockTabEnabled.Checked = s.StockTabs.Enabled
-
-	stockTabSection := widget.NewCard("Stock Holding Tabs", "",
-		container.NewVBox(
-			container.NewGridWithColumns(2,
-				widget.NewLabel("Enable Stock Tabs"), stockTabEnabled,
-			),
-			container.NewGridWithColumns(2,
-				widget.NewLabel("Top Padding (mm)"), floatEntry(&s.StockTabs.TopPadding),
-				widget.NewLabel("Bottom Padding (mm)"), floatEntry(&s.StockTabs.BottomPadding),
-				widget.NewLabel("Left Padding (mm)"), floatEntry(&s.StockTabs.LeftPadding),
-				widget.NewLabel("Right Padding (mm)"), floatEntry(&s.StockTabs.RightPadding),
-			),
-		),
-	)
-
-	clampZoneSection := a.buildClampZoneSection()
-
-	dustShoeCheck := widget.NewCheck("", func(b bool) { s.DustShoeEnabled = b })
-	dustShoeCheck.Checked = s.DustShoeEnabled
-
-	dustShoeSection := widget.NewCard("Dust Shoe Collision Detection",
-		"Detect potential collisions between dust shoe and clamp/fixture zones",
-		container.NewGridWithColumns(2,
-			widget.NewLabel("Enable Collision Detection"), dustShoeCheck,
-			widget.NewLabel("Dust Shoe Width (mm)"), floatEntry(&s.DustShoeWidth),
-			widget.NewLabel("Minimum Clearance (mm)"), floatEntry(&s.DustShoeClearance),
-		),
-	)
-
-	weightsSection := widget.NewCard("Optimization Objectives", "Weight priorities for multi-objective optimization (0 = disabled, higher = more important)", container.NewGridWithColumns(2,
-		widget.NewLabel("Minimize Waste"), floatEntry(&s.OptimizeWeights.MinimizeWaste),
-		widget.NewLabel("Minimize Sheets"), floatEntry(&s.OptimizeWeights.MinimizeSheets),
-		widget.NewLabel("Minimize Cut Length"), floatEntry(&s.OptimizeWeights.MinimizeCutLen),
-		widget.NewLabel("Minimize Job Time"), floatEntry(&s.OptimizeWeights.MinimizeJobTime),
-	))
-
-	return container.NewVScroll(container.NewVBox(
-		optimizerSection,
-		weightsSection,
-		cncSection,
-		plungeSection,
-		leadInOutSection,
-		cornerSection,
-		onionSkinSection,
-		stockTabSection,
-		clampZoneSection,
-		dustShoeSection,
-	))
+	return container.NewBorder(nil, nil, nil, manageBtn, a.profileSelector)
 }
 
 // clampZoneListContainer holds the dynamic clamp zone list for refresh.
@@ -1252,7 +1585,7 @@ func (a *App) refreshClampZoneList() {
 
 	zones := a.project.Settings.ClampZones
 	if len(zones) == 0 {
-		clampZoneListContainer.Add(widget.NewLabel("No clamp zones defined. Parts can be placed anywhere on the sheet."))
+		clampZoneListContainer.Add(widget.NewLabel("No clamp zones defined."))
 		return
 	}
 
@@ -1315,7 +1648,6 @@ func (a *App) showAddClampZoneDialog() {
 	zEntry.SetPlaceHolder("Height above stock (mm)")
 	zEntry.SetText("25")
 
-	// Preset clamp positions for common setups
 	presetSelect := widget.NewSelect([]string{
 		"Custom",
 		"Front-Left Corner (50x50)",
@@ -1414,257 +1746,6 @@ func (a *App) showAddClampZoneDialog() {
 	form.Show()
 }
 
-func (a *App) buildProfileSelector() fyne.CanvasObject {
-	profileNames := model.GetProfileNames()
-	a.profileSelector = widget.NewSelect(profileNames, func(selected string) {
-		a.project.Settings.GCodeProfile = selected
-	})
-	a.profileSelector.SetSelected(a.project.Settings.GCodeProfile)
-
-	manageBtn := widget.NewButtonWithIcon("", theme.SettingsIcon(), func() {
-		a.showProfileManager()
-	})
-
-	return container.NewBorder(nil, nil, nil, manageBtn, a.profileSelector)
-}
-
-// ─── Results Panel ─────────────────────────────────────────
-
-func (a *App) buildResultsPanel() fyne.CanvasObject {
-	optimizeBtn := widget.NewButtonWithIcon("Optimize", theme.MediaPlayIcon(), func() {
-		a.runOptimize()
-	})
-	optimizeBtn.Importance = widget.HighImportance
-	a.resultContainer = container.NewStack(
-		container.NewCenter(
-			container.NewVBox(
-				widget.NewLabel("No results yet. Add parts and stock, then click Optimize."),
-				optimizeBtn,
-			),
-		),
-	)
-	return a.resultContainer
-}
-
-func (a *App) refreshResults() {
-	a.resultContainer.RemoveAll()
-
-	optimizeBtn := widget.NewButtonWithIcon("Optimize", theme.MediaPlayIcon(), func() {
-		a.runOptimize()
-	})
-	optimizeBtn.Importance = widget.HighImportance
-
-	if a.project.Result == nil || len(a.project.Result.Sheets) == 0 {
-		a.resultContainer.Add(container.NewCenter(
-			container.NewVBox(
-				widget.NewLabel("No results yet. Add parts and stock, then click Optimize."),
-				optimizeBtn,
-			),
-		))
-		a.resultContainer.Refresh()
-		return
-	}
-
-	// Action buttons toolbar
-	exportBtn := widget.NewButtonWithIcon("Export GCode", theme.DocumentSaveIcon(), func() {
-		a.exportGCode()
-	})
-	saveOffcutsBtn := widget.NewButtonWithIcon("Save Offcuts to Inventory", theme.ContentAddIcon(), func() {
-		a.saveOffcutsToInventory()
-	})
-	labelsBtn := widget.NewButtonWithIcon("Generate Labels", theme.ListIcon(), func() {
-		a.exportLabels()
-	})
-	toolbar := container.NewHBox(optimizeBtn, layout.NewSpacer(), saveOffcutsBtn, labelsBtn, exportBtn)
-
-	// Build cut layout view
-	sheetResults := widgets.RenderSheetResults(a.project.Result, a.project.Settings, a.project.Parts)
-
-	// Build collision warning banner if collisions were detected
-	var topItems []fyne.CanvasObject
-	topItems = append(topItems, toolbar, widget.NewSeparator())
-
-	if len(a.lastCollisions) > 0 {
-		warnings := gcode.FormatCollisionWarnings(a.lastCollisions)
-		collisionHeader := widget.NewLabel(fmt.Sprintf(
-			"DUST SHOE COLLISION WARNING: %d potential collision(s) detected", len(a.lastCollisions)))
-		collisionHeader.Importance = widget.DangerImportance
-		collisionHeader.TextStyle = fyne.TextStyle{Bold: true}
-		topItems = append(topItems, collisionHeader)
-
-		maxShow := 5
-		for i, w := range warnings {
-			if i >= maxShow {
-				topItems = append(topItems, widget.NewLabel(
-					fmt.Sprintf("... and %d more collision(s)", len(warnings)-maxShow)))
-				break
-			}
-			warnLabel := widget.NewLabel(w)
-			warnLabel.Importance = widget.WarningImportance
-			topItems = append(topItems, warnLabel)
-		}
-		topItems = append(topItems, widget.NewSeparator())
-	}
-
-	// Use Border layout: toolbar pinned at top, results fill remaining space
-	a.resultContainer.Add(container.NewBorder(
-		container.NewVBox(topItems...),
-		nil, nil, nil,
-		sheetResults,
-	))
-	a.resultContainer.Refresh()
-}
-
-// showPurchasingCalculator displays a dialog that calculates how many sheets to purchase.
-func (a *App) showPurchasingCalculator() {
-	if len(a.project.Parts) == 0 {
-		dialog.ShowInformation("No Parts", "Add parts to the project first.", a.window)
-		return
-	}
-
-	// Default sheet size from first stock or inventory
-	defaultW := 2440.0
-	defaultH := 1220.0
-	defaultPrice := 0.0
-	if len(a.project.Stocks) > 0 {
-		defaultW = a.project.Stocks[0].Width
-		defaultH = a.project.Stocks[0].Height
-		defaultPrice = a.project.Stocks[0].PricePerSheet
-	}
-
-	sheetWidthEntry := widget.NewEntry()
-	sheetWidthEntry.SetText(fmt.Sprintf("%.0f", defaultW))
-
-	sheetHeightEntry := widget.NewEntry()
-	sheetHeightEntry.SetText(fmt.Sprintf("%.0f", defaultH))
-
-	wasteEntry := widget.NewEntry()
-	wasteEntry.SetText("15")
-
-	priceEntry := widget.NewEntry()
-	priceEntry.SetText(fmt.Sprintf("%.2f", defaultPrice))
-
-	resultLabel := widget.NewLabel("")
-	resultLabel.Wrapping = fyne.TextWrapWord
-
-	calculateBtn := widget.NewButton("Calculate", func() {
-		sw, _ := strconv.ParseFloat(sheetWidthEntry.Text, 64)
-		sh, _ := strconv.ParseFloat(sheetHeightEntry.Text, 64)
-		waste, _ := strconv.ParseFloat(wasteEntry.Text, 64)
-		price, _ := strconv.ParseFloat(priceEntry.Text, 64)
-
-		if sw <= 0 || sh <= 0 {
-			resultLabel.SetText("Sheet dimensions must be > 0")
-			return
-		}
-
-		est := model.CalculatePurchaseEstimate(a.project.Parts, sw, sh,
-			a.project.Settings.KerfWidth, waste, price)
-
-		var text strings.Builder
-		text.WriteString(fmt.Sprintf("Total part area: %.0f sq mm (%.2f board feet)\n", est.TotalPartArea, est.TotalBoardFeet))
-		text.WriteString(fmt.Sprintf("Sheet area: %.0f sq mm (%.0f x %.0f)\n", est.SheetArea, sw, sh))
-		text.WriteString(fmt.Sprintf("Kerf width: %.1f mm\n\n", est.KerfWidth))
-		text.WriteString(fmt.Sprintf("Sheets needed (minimum): %d\n", est.SheetsNeededMin))
-		text.WriteString(fmt.Sprintf("Sheets recommended (with %.0f%% waste): %d\n", waste, est.SheetsWithWaste))
-		if price > 0 {
-			text.WriteString(fmt.Sprintf("\nEstimated cost: %.2f (%d sheets x %.2f/sheet)\n",
-				est.EstimatedCost, est.SheetsWithWaste, price))
-		}
-
-		resultLabel.SetText(text.String())
-	})
-	calculateBtn.Importance = widget.HighImportance
-
-	// Stock preset dropdown for quick selection
-	presetNames := a.inventory.StockNames()
-	presetSelect := widget.NewSelect(presetNames, func(selected string) {
-		preset := a.inventory.FindStockByName(selected)
-		if preset == nil {
-			return
-		}
-		sheetWidthEntry.SetText(fmt.Sprintf("%.0f", preset.Width))
-		sheetHeightEntry.SetText(fmt.Sprintf("%.0f", preset.Height))
-		if preset.PricePerSheet > 0 {
-			priceEntry.SetText(fmt.Sprintf("%.2f", preset.PricePerSheet))
-		}
-	})
-	presetSelect.PlaceHolder = "Load from stock inventory..."
-
-	content := container.NewVBox(
-		widget.NewLabelWithStyle("Purchasing Calculator", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		widget.NewLabel(fmt.Sprintf("Parts in project: %d types, %d total pieces",
-			len(a.project.Parts), countTotalParts(a.project.Parts))),
-		widget.NewSeparator(),
-		widget.NewFormItem("Stock Preset", presetSelect).Widget,
-		container.NewGridWithColumns(2,
-			widget.NewLabel("Sheet Width (mm)"), sheetWidthEntry,
-			widget.NewLabel("Sheet Height (mm)"), sheetHeightEntry,
-			widget.NewLabel("Waste Factor (%)"), wasteEntry,
-			widget.NewLabel("Price per Sheet"), priceEntry,
-		),
-		calculateBtn,
-		widget.NewSeparator(),
-		resultLabel,
-	)
-
-	d := dialog.NewCustom("Purchasing Calculator", "Close", content, a.window)
-	d.Resize(fyne.NewSize(500, 550))
-	d.Show()
-}
-
-// countTotalParts sums up all part quantities.
-func countTotalParts(parts []model.Part) int {
-	total := 0
-	for _, p := range parts {
-		total += p.Quantity
-	}
-	return total
-}
-
-// saveOffcutsToInventory detects usable offcuts from the current result and saves them
-// as stock presets in the inventory for future projects.
-func (a *App) saveOffcutsToInventory() {
-	if a.project.Result == nil || len(a.project.Result.Sheets) == 0 {
-		dialog.ShowInformation("No Results", "Run the optimizer first to detect offcuts.", a.window)
-		return
-	}
-
-	offcuts := model.DetectAllOffcuts(*a.project.Result, a.project.Settings.KerfWidth)
-	if len(offcuts) == 0 {
-		dialog.ShowInformation("No Offcuts", "No usable remnant areas were detected.", a.window)
-		return
-	}
-
-	var summary strings.Builder
-	summary.WriteString(fmt.Sprintf("Found %d usable offcut(s):\n\n", len(offcuts)))
-	for i, o := range offcuts {
-		summary.WriteString(fmt.Sprintf("%d. Sheet %d (%s): %.0f x %.0f mm",
-			i+1, o.SheetIndex+1, o.SheetLabel, o.Width, o.Height))
-		if o.PricePerSheet > 0 {
-			summary.WriteString(fmt.Sprintf(" (~%.2f value)", o.PricePerSheet))
-		}
-		summary.WriteString("\n")
-	}
-	summary.WriteString("\nSave these as stock presets in your inventory?")
-
-	dialog.ShowConfirm("Save Offcuts to Inventory", summary.String(), func(ok bool) {
-		if !ok {
-			return
-		}
-		count := 0
-		for _, o := range offcuts {
-			sheet := o.ToStockSheet()
-			preset := model.NewStockPresetWithPrice(sheet.Label, sheet.Width, sheet.Height, "Offcut", sheet.PricePerSheet)
-			a.inventory.Stocks = append(a.inventory.Stocks, preset)
-			count++
-		}
-		a.saveInventory()
-		dialog.ShowInformation("Offcuts Saved",
-			fmt.Sprintf("%d offcut(s) added to stock inventory.", count), a.window)
-	}, a.window)
-}
-
 // ─── Actions ───────────────────────────────────────────────
 
 func (a *App) runOptimize() {
@@ -1751,13 +1832,11 @@ func (a *App) exportGCode() {
 	gen := gcode.New(a.project.Settings)
 	codes := gen.GenerateAll(*a.project.Result)
 
-	// If single sheet, save one file. If multiple, ask which or save all.
 	if len(codes) == 1 {
 		a.saveGCodeFile(codes[0], "sheet1.gcode")
 		return
 	}
 
-	// For multiple sheets, save each one
 	for i, code := range codes {
 		filename := fmt.Sprintf("sheet%d.gcode", i+1)
 		a.saveGCodeFile(code, filename)
@@ -1791,7 +1870,6 @@ func (a *App) exportPDF() {
 		if err != nil || writer == nil {
 			return
 		}
-		// Close the writer immediately since ExportPDF writes directly to the file path
 		writer.Close()
 		path := writer.URI().Path()
 		if exportErr := export.ExportPDF(path, *a.project.Result, a.project.Settings); exportErr != nil {
@@ -1888,7 +1966,6 @@ func (a *App) importSharedProject() {
 			return
 		}
 
-		// Show info about the imported project before applying
 		info := fmt.Sprintf("Project: %s\nParts: %d\nStock Sheets: %d",
 			proj.Name, len(proj.Parts), len(proj.Stocks))
 		if proj.Metadata.Author != "" {
@@ -1958,17 +2035,14 @@ func (a *App) importDXF() {
 }
 
 func (a *App) handleImportResult(result partimporter.ImportResult) {
-	// Build a comprehensive summary message
 	var summary strings.Builder
 
-	// Results summary
 	summary.WriteString(fmt.Sprintf("Parts imported: %d", len(result.Parts)))
 
 	if len(result.Errors) > 0 {
 		summary.WriteString(fmt.Sprintf("\nRows skipped: %d", len(result.Errors)))
 	}
 
-	// Warnings section
 	if len(result.Warnings) > 0 {
 		summary.WriteString("\n\nWarnings:\n")
 		for _, w := range result.Warnings {
@@ -1976,7 +2050,6 @@ func (a *App) handleImportResult(result partimporter.ImportResult) {
 		}
 	}
 
-	// Errors section
 	if len(result.Errors) > 0 {
 		summary.WriteString("\nErrors:\n")
 		maxErrors := 10
@@ -1989,17 +2062,165 @@ func (a *App) handleImportResult(result partimporter.ImportResult) {
 		}
 	}
 
-	// Add imported parts to the project
 	if len(result.Parts) > 0 {
 		a.saveState("Import Parts")
 		a.project.Parts = append(a.project.Parts, result.Parts...)
 		a.refreshPartsList()
+		a.scheduleOptimize()
 	}
 
-	// Show the summary dialog
 	if len(result.Parts) == 0 && len(result.Errors) > 0 {
 		dialog.ShowError(fmt.Errorf("import failed\n\n%s", summary.String()), a.window)
 	} else {
 		dialog.ShowInformation("Import Summary", summary.String(), a.window)
 	}
+}
+
+// ─── Purchasing Calculator ──────────────────────────────────
+
+func (a *App) showPurchasingCalculator() {
+	if len(a.project.Parts) == 0 {
+		dialog.ShowInformation("No Parts", "Add parts to the project first.", a.window)
+		return
+	}
+
+	defaultW := 2440.0
+	defaultH := 1220.0
+	defaultPrice := 0.0
+	if len(a.project.Stocks) > 0 {
+		defaultW = a.project.Stocks[0].Width
+		defaultH = a.project.Stocks[0].Height
+		defaultPrice = a.project.Stocks[0].PricePerSheet
+	}
+
+	sheetWidthEntry := widget.NewEntry()
+	sheetWidthEntry.SetText(fmt.Sprintf("%.0f", defaultW))
+
+	sheetHeightEntry := widget.NewEntry()
+	sheetHeightEntry.SetText(fmt.Sprintf("%.0f", defaultH))
+
+	wasteEntry := widget.NewEntry()
+	wasteEntry.SetText("15")
+
+	priceEntry := widget.NewEntry()
+	priceEntry.SetText(fmt.Sprintf("%.2f", defaultPrice))
+
+	resultLabel := widget.NewLabel("")
+	resultLabel.Wrapping = fyne.TextWrapWord
+
+	calculateBtn := widget.NewButton("Calculate", func() {
+		sw, _ := strconv.ParseFloat(sheetWidthEntry.Text, 64)
+		sh, _ := strconv.ParseFloat(sheetHeightEntry.Text, 64)
+		waste, _ := strconv.ParseFloat(wasteEntry.Text, 64)
+		price, _ := strconv.ParseFloat(priceEntry.Text, 64)
+
+		if sw <= 0 || sh <= 0 {
+			resultLabel.SetText("Sheet dimensions must be > 0")
+			return
+		}
+
+		est := model.CalculatePurchaseEstimate(a.project.Parts, sw, sh,
+			a.project.Settings.KerfWidth, waste, price)
+
+		var text strings.Builder
+		text.WriteString(fmt.Sprintf("Total part area: %.0f sq mm (%.2f board feet)\n", est.TotalPartArea, est.TotalBoardFeet))
+		text.WriteString(fmt.Sprintf("Sheet area: %.0f sq mm (%.0f x %.0f)\n", est.SheetArea, sw, sh))
+		text.WriteString(fmt.Sprintf("Kerf width: %.1f mm\n\n", est.KerfWidth))
+		text.WriteString(fmt.Sprintf("Sheets needed (minimum): %d\n", est.SheetsNeededMin))
+		text.WriteString(fmt.Sprintf("Sheets recommended (with %.0f%% waste): %d\n", waste, est.SheetsWithWaste))
+		if price > 0 {
+			text.WriteString(fmt.Sprintf("\nEstimated cost: %.2f (%d sheets x %.2f/sheet)\n",
+				est.EstimatedCost, est.SheetsWithWaste, price))
+		}
+
+		resultLabel.SetText(text.String())
+	})
+	calculateBtn.Importance = widget.HighImportance
+
+	presetNames := a.inventory.StockNames()
+	presetSelect := widget.NewSelect(presetNames, func(selected string) {
+		preset := a.inventory.FindStockByName(selected)
+		if preset == nil {
+			return
+		}
+		sheetWidthEntry.SetText(fmt.Sprintf("%.0f", preset.Width))
+		sheetHeightEntry.SetText(fmt.Sprintf("%.0f", preset.Height))
+		if preset.PricePerSheet > 0 {
+			priceEntry.SetText(fmt.Sprintf("%.2f", preset.PricePerSheet))
+		}
+	})
+	presetSelect.PlaceHolder = "Load from stock inventory..."
+
+	content := container.NewVBox(
+		widget.NewLabelWithStyle("Purchasing Calculator", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabel(fmt.Sprintf("Parts in project: %d types, %d total pieces",
+			len(a.project.Parts), countTotalParts(a.project.Parts))),
+		widget.NewSeparator(),
+		widget.NewFormItem("Stock Preset", presetSelect).Widget,
+		container.NewGridWithColumns(2,
+			widget.NewLabel("Sheet Width (mm)"), sheetWidthEntry,
+			widget.NewLabel("Sheet Height (mm)"), sheetHeightEntry,
+			widget.NewLabel("Waste Factor (%)"), wasteEntry,
+			widget.NewLabel("Price per Sheet"), priceEntry,
+		),
+		calculateBtn,
+		widget.NewSeparator(),
+		resultLabel,
+	)
+
+	d := dialog.NewCustom("Purchasing Calculator", "Close", content, a.window)
+	d.Resize(fyne.NewSize(500, 550))
+	d.Show()
+}
+
+// countTotalParts sums up all part quantities.
+func countTotalParts(parts []model.Part) int {
+	total := 0
+	for _, p := range parts {
+		total += p.Quantity
+	}
+	return total
+}
+
+// saveOffcutsToInventory detects usable offcuts from the current result and saves them
+// as stock presets in the inventory for future projects.
+func (a *App) saveOffcutsToInventory() {
+	if a.project.Result == nil || len(a.project.Result.Sheets) == 0 {
+		dialog.ShowInformation("No Results", "Run the optimizer first to detect offcuts.", a.window)
+		return
+	}
+
+	offcuts := model.DetectAllOffcuts(*a.project.Result, a.project.Settings.KerfWidth)
+	if len(offcuts) == 0 {
+		dialog.ShowInformation("No Offcuts", "No usable remnant areas were detected.", a.window)
+		return
+	}
+
+	var summary strings.Builder
+	summary.WriteString(fmt.Sprintf("Found %d usable offcut(s):\n\n", len(offcuts)))
+	for i, o := range offcuts {
+		summary.WriteString(fmt.Sprintf("%d. Sheet %d (%s): %.0f x %.0f mm",
+			i+1, o.SheetIndex+1, o.SheetLabel, o.Width, o.Height))
+		if o.PricePerSheet > 0 {
+			summary.WriteString(fmt.Sprintf(" (~%.2f value)", o.PricePerSheet))
+		}
+		summary.WriteString("\n")
+	}
+	summary.WriteString("\nSave these as stock presets in your inventory?")
+
+	dialog.ShowConfirm("Save Offcuts to Inventory", summary.String(), func(ok bool) {
+		if !ok {
+			return
+		}
+		count := 0
+		for _, o := range offcuts {
+			sheet := o.ToStockSheet()
+			preset := model.NewStockPresetWithPrice(sheet.Label, sheet.Width, sheet.Height, "Offcut", sheet.PricePerSheet)
+			a.inventory.Stocks = append(a.inventory.Stocks, preset)
+			count++
+		}
+		a.saveInventory()
+		dialog.ShowInformation("Offcuts Saved",
+			fmt.Sprintf("%d offcut(s) added to stock inventory.", count), a.window)
+	}, a.window)
 }
