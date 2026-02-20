@@ -29,11 +29,13 @@ func (a *App) showToolInventoryDialog() {
 			return
 		}
 
-		header := container.NewGridWithColumns(6,
+		header := container.NewGridWithColumns(8,
 			widget.NewLabelWithStyle("Name", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			widget.NewLabelWithStyle("Diameter", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			widget.NewLabelWithStyle("Feed Rate", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			widget.NewLabelWithStyle("RPM", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			widget.NewLabelWithStyle("Max Depth", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			widget.NewLabelWithStyle("Pass Depth", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 			widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{}),
 			widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{}),
 		)
@@ -43,11 +45,13 @@ func (a *App) showToolInventoryDialog() {
 		for i := range a.inventory.Tools {
 			idx := i
 			t := a.inventory.Tools[idx]
-			row := container.NewGridWithColumns(6,
+			row := container.NewGridWithColumns(8,
 				widget.NewLabel(t.Name),
 				widget.NewLabel(fmt.Sprintf("%.2f mm", t.ToolDiameter)),
 				widget.NewLabel(fmt.Sprintf("%.0f mm/min", t.FeedRate)),
 				widget.NewLabel(fmt.Sprintf("%d", t.SpindleSpeed)),
+				widget.NewLabel(fmt.Sprintf("%.1f mm", t.CutDepth)),
+				widget.NewLabel(fmt.Sprintf("%.1f mm", t.PassDepth)),
 				widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), func() {
 					a.showEditToolDialog(idx, refreshList)
 				}),
@@ -84,7 +88,7 @@ func (a *App) showToolInventoryDialog() {
 	)
 
 	d := dialog.NewCustom("Tool Inventory", "Close", content, a.window)
-	d.Resize(fyne.NewSize(700, 500))
+	d.Resize(fyne.NewSize(850, 500))
 	d.Show()
 }
 
@@ -122,8 +126,8 @@ func (a *App) showAddToolDialog(onDone func()) {
 			widget.NewFormItem("Plunge Rate (mm/min)", plungeEntry),
 			widget.NewFormItem("Spindle Speed (RPM)", rpmEntry),
 			widget.NewFormItem("Safe Z (mm)", safeZEntry),
-			widget.NewFormItem("Material Thickness (mm)", cutDepthEntry),
-			widget.NewFormItem("Pass Depth (mm)", passDepthEntry),
+			widget.NewFormItem("Max Cut Depth (mm)", cutDepthEntry),
+			widget.NewFormItem("Depth per Pass (mm)", passDepthEntry),
 		},
 		func(ok bool) {
 			if !ok {
@@ -188,8 +192,8 @@ func (a *App) showEditToolDialog(idx int, onDone func()) {
 			widget.NewFormItem("Plunge Rate (mm/min)", plungeEntry),
 			widget.NewFormItem("Spindle Speed (RPM)", rpmEntry),
 			widget.NewFormItem("Safe Z (mm)", safeZEntry),
-			widget.NewFormItem("Material Thickness (mm)", cutDepthEntry),
-			widget.NewFormItem("Pass Depth (mm)", passDepthEntry),
+			widget.NewFormItem("Max Cut Depth (mm)", cutDepthEntry),
+			widget.NewFormItem("Depth per Pass (mm)", passDepthEntry),
 		},
 		func(ok bool) {
 			if !ok {
